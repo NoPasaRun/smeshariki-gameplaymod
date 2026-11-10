@@ -30,11 +30,29 @@ import net.minecraft.world.level.saveddata.SavedDataType;
  * бревна он считает сам.
  */
 public final class LogRoutes extends SavedData {
-	public record Entry(String name, List<Float> nodes) {
+	/** Ряд потока в данных мира: см. {@link LogRoute.Flow}. */
+	public record LaneEntry(float center, float phase, float shift, float sway) {
+		static final Codec<LaneEntry> CODEC = RecordCodecBuilder.create(i -> i.group(
+				Codec.FLOAT.optionalFieldOf("center", 0f).forGetter(LaneEntry::center),
+				Codec.FLOAT.optionalFieldOf("phase", 0f).forGetter(LaneEntry::phase),
+				Codec.FLOAT.optionalFieldOf("shift", 0f).forGetter(LaneEntry::shift),
+				Codec.FLOAT.optionalFieldOf("sway", 0f).forGetter(LaneEntry::sway)
+		).apply(i, LaneEntry::new));
+	}
+
+	public record Entry(String name, List<Float> nodes, float wavelength, int gapMin, int gapMax, List<LaneEntry> lanes) {
 		static final Codec<Entry> CODEC = RecordCodecBuilder.create(i -> i.group(
 				Codec.STRING.fieldOf("name").forGetter(Entry::name),
-				Codec.FLOAT.listOf().fieldOf("nodes").forGetter(Entry::nodes)
+				Codec.FLOAT.listOf().fieldOf("nodes").forGetter(Entry::nodes),
+				Codec.FLOAT.optionalFieldOf("wavelength", LogRoute.Flow.DEFAULT.wavelength()).forGetter(Entry::wavelength),
+				Codec.INT.optionalFieldOf("gap_min", LogRoute.Flow.DEFAULT.gapMin()).forGetter(Entry::gapMin),
+				Codec.INT.optionalFieldOf("gap_max", LogRoute.Flow.DEFAULT.gapMax()).forGetter(Entry::gapMax),
+				LaneEntry.CODEC.listOf().optionalFieldOf("lanes", List.of()).forGetter(Entry::lanes)
 		).apply(i, Entry::new));
+
+		LogRoute.Flow flow() {
+			return new LogRoute.Flow(wavelength, gapMin, gapMax, lanes.stream().map(l -> new LogRoute.Flow.Lane(l.center(), l.phase(), l.shift(), l.sway())).toList());
+		}
 	}
 
 	private static final Codec<LogRoutes> CODEC = RecordCodecBuilder.create(i -> i.group(
@@ -76,7 +94,7 @@ public final class LogRoutes extends SavedData {
 
 	private static void load(MinecraftServer s) {
 		List<LogRoute> routes = new ArrayList<>();
-		for (Entry e : s.getDataStorage().computeIfAbsent(TYPE).entries) routes.add(new LogRoute(toArray(e.nodes())));
+		for (Entry e : s.getDataStorage().computeIfAbsent(TYPE).entries) routes.add(new LogRoute(toArray(e.nodes()), e.flow()));
 		server = List.copyOf(routes);
 		LogRiver.rebuild(server);
 	}

@@ -1,7 +1,7 @@
 package com.smeshariki.gameplay.raft;
 
 /**
- * Маршрут брёвен по одной реке: узлы средней линии с полушириной русла. Маршруты лежат в данных мира ({@link LogRoutes}), их пишет
+ * Маршрут брёвен по одной реке: узлы средней линии с полушириной русла и параметры потока ({@link Flow}). Маршруты лежат в данных мира ({@link LogRoutes}), их пишет
  * {@code SmesharikiWorldMod/tools/log_route.py}; если русло поменялось, пересчитать. Плот течением вёл бы себя хуже: он не
  * поворачивается, застревает на поворотах и на обрыве и идёт одной линией, а реку шириной 13–17 блоков брёвна должны занимать всю.
  */
@@ -11,12 +11,37 @@ public final class LogRoute {
 	/** На падении высота считается вдвое короче: по воде бревно идёт 10 блоков в секунду, падает 20. */
 	private static final double FALL_WEIGHT = 0.5;
 
+	/**
+	 * Как течёт поток брёвен по этой реке: решает тот, кто делал реку (данные мира), а не мод. Ряд — траектория со своим положением в русле:
+	 * {@code center} от −1 (левый берег по течению) до 1 (правый), {@code phase} — фаза синусоиды, {@code shift} — сдвиг поперёк в блоках (плюс — к правому берегу),
+	 * {@code sway} — доля размаха, на которую ряд качается (0 — идёт строго по линии). {@code wavelength} — длина волны качания, блоков;
+	 * следующее бревно на каждом ряду появляется через {@code gapMin}…{@code gapMax} тиков. Без параметров в данных — один ряд по средней линии.
+	 */
+	public record Flow(float wavelength, int gapMin, int gapMax, java.util.List<Lane> lanes) {
+		public record Lane(float center, float phase, float shift, float sway) {
+		}
+
+		public static final Flow DEFAULT = new Flow(70f, 12, 36, java.util.List.of(new Lane(0f, 0f, 0f, 0f)));
+
+		public Flow {
+			lanes = lanes.isEmpty() ? DEFAULT.lanes() : java.util.List.copyOf(lanes);
+			gapMin = Math.max(1, gapMin);
+			gapMax = Math.max(gapMin, gapMax);
+		}
+	}
+
 	/** Узлы: x, y (основание плота), z, полуширина русла поперёк линии. */
 	private final float[] nodes;
+	private final Flow flow;
 	private final int count;
 	private final double[] distance, normalX, normalZ;
 
 	public LogRoute(float[] nodes) {
+		this(nodes, Flow.DEFAULT);
+	}
+
+	public LogRoute(float[] nodes, Flow flow) {
+		this.flow = flow;
 		this.nodes = nodes.clone();
 		this.count = nodes.length / 4;
 		distance = new double[count];
@@ -32,6 +57,10 @@ public final class LogRoute {
 			normalX[i] = -dz / len;
 			normalZ[i] = dx / len;
 		}
+	}
+
+	public Flow flow() {
+		return flow;
 	}
 
 	public float[] nodesArray() {

@@ -12,7 +12,6 @@
 		"ItemInHandRendererMixin",
 		"KeyboardHandlerMixin",
 		"KeyboardInputMixin",
-		"LightmapRenderStateExtractorMixin",
 		"LocalPlayerSprintMixin",
 		"MouseHandlerMixin"
 	],

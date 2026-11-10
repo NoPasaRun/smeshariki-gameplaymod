@@ -35,16 +35,6 @@ import net.minecraft.world.level.block.state.BlockState;
  */
 public final class LogRiver {
 	public static EntityType<LogRaftEntity> TYPE;
-	/** Длина волны обеих траекторий, блоков вдоль реки. Размах задаёт ширина реки, см. {@link LogRoute}. */
-	private static final float WAVELENGTH = 70;
-	/** Три ряда: два у берегов, у каждого своя половина реки (−1 и 1 — крайние положения у берегов), синусоида и косинусоида; третий — по средней линии без качания. */
-	private static final float[] CENTERS = { -0.7f, 0.7f, 0f }, PHASES = { 0f, (float) (Math.PI / 2.0), 0f };
-	/** Сдвиг каждого ряда поперёк русла, блоков (плюс — к правому берегу по течению): ряд у левого берега на 2 к левому, у правого — на 2 к правому (2026-11-04). */
-	private static final float[] SHIFTS = { -2f, 2f, 0f };
-	/** Качание каждого ряда долей размаха: третий ряд (2026-11-04) идёт строго по средней линии реки. */
-	private static final float[] SWAYS = { 0.3f, 0.3f, 0f };
-	/** На каждой траектории следующее бревно через случайное число тиков (12–36, при 3,33 блока/с это 2–6 блоков: брёвна ряда могут наезжать друг на друга; так густо — решение пользователя 2026-11-05). */
-	private static final int GAP_MIN = 12, GAP_MAX = 36;
 	/** На таком расстоянии от реки игрок запускает поток, блоков. */
 	private static final double ACTIVE_RADIUS = 160;
 	/** Чанки реки держатся радиусом билета: при 3 сущности живут в самом чанке и его соседях. */
@@ -95,7 +85,7 @@ public final class LogRiver {
 			if (route.nodes() < 2) continue;
 			Set<ChunkPos> along = new LinkedHashSet<>();
 			for (int i = 0; i < route.nodes(); i++) along.add(new ChunkPos((int) Math.floor(route.x(i)) >> 4, (int) Math.floor(route.z(i)) >> 4));
-			list.add(new River(r, route, new ArrayList<>(along), new long[PHASES.length]));
+			list.add(new River(r, route, new ArrayList<>(along), new long[route.flow().lanes().size()]));
 		}
 		rivers = List.copyOf(list);
 	}
@@ -113,12 +103,14 @@ public final class LogRiver {
 		// игрок может быть в сотнях блоков от начала реки, а поток должен до него дойти
 		if (refresh) for (ChunkPos pos : river.chunks()) level.getChunkSource().addTicketWithRadius(ticket, pos, TICKET_RADIUS);
 		long[] next = river.next();
-		for (int path = 0; path < PHASES.length; path++) {
+		LogRoute.Flow flow = river.route().flow();
+		for (int path = 0; path < next.length; path++) {
 			// другой мир со своим счётчиком времени: срок из прежнего мира не считается
-			if (next[path] > time + GAP_MAX) next[path] = time;
+			if (next[path] > time + flow.gapMax()) next[path] = time;
 			if (next[path] > time) continue;
-			next[path] = time + GAP_MIN + level.getRandom().nextInt(GAP_MAX - GAP_MIN + 1);
-			spawn(level, river, CENTERS[path], PHASES[path], SHIFTS[path], SWAYS[path]);
+			next[path] = time + flow.gapMin() + level.getRandom().nextInt(flow.gapMax() - flow.gapMin() + 1);
+			LogRoute.Flow.Lane lane = flow.lanes().get(path);
+			spawn(level, river, lane.center(), lane.phase(), lane.shift(), lane.sway());
 		}
 	}
 
@@ -142,7 +134,7 @@ public final class LogRiver {
 		if (!level.isPositionEntityTicking(start) || !level.getFluidState(start).is(FluidTags.WATER) || field.flowAt(start) == null) return;
 		LogRaftEntity log = new LogRaftEntity(TYPE, level);
 		setCells(log, SHAPES[random.nextInt(SHAPES.length)]);
-		log.launch(river.index(), center, sway, WAVELENGTH, phase, shift);
+		log.launch(river.index(), center, sway, river.route().flow().wavelength(), phase, shift);
 		level.addFreshEntity(log);
 	}
 
