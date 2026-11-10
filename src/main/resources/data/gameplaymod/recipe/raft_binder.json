@@ -1,0 +1,6 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": ["minecraft:string", "minecraft:string", "minecraft:stick", "minecraft:stick"],
+	"result": { "id": "gameplaymod:raft_binder", "count": 1 }
+}

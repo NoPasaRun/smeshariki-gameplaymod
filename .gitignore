@@ -1,0 +1,12 @@
+.gradle/
+build/
+run/
+.idea/
+*.iml
+out/
+logs/
+__pycache__/
+*.pyc
+*.npz
+hs_err_pid*
+*.jar.tmp

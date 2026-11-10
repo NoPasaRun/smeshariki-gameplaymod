@@ -1,0 +1,6 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": ["minecraft:string", "minecraft:string", "minecraft:string", "minecraft:string", "minecraft:stick"],
+	"result": { "id": "gameplaymod:tarzan_rope", "count": 1 }
+}

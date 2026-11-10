@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:iron_ingot",
+		"minecraft:flint_and_steel",
+		"minecraft:string"
+	],
+	"result": {
+		"id": "gameplaymod:balloon_burner",
+		"count": 1
+	}
+}

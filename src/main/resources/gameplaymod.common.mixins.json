@@ -1,0 +1,22 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.smeshariki.gameplay.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"AbstractArrowMixin",
+		"AvatarSlopeMixin",
+		"ClipContextMixin",
+		"EntityCollisionContextMixin",
+		"EntityFireMixin",
+		"EntityGetterMixin",
+		"EntitySlopeMixin",
+		"LivingEntitySlopeMixin",
+		"LivingEntityVineMixin",
+		"PlayerMixin",
+		"ServerGamePacketListenerImplMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

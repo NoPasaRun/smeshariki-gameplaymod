@@ -1,0 +1,10 @@
+{
+ "variants": {
+  "tip=false": {
+   "model": "gameplaymod:block/stone_spike_base"
+  },
+  "tip=true": {
+   "model": "gameplaymod:block/stone_spike_tip"
+  }
+ }
+}

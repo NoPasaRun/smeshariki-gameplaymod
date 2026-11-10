@@ -1,0 +1,6 @@
+{
+ "parent": "gameplaymod:block/slide_shape_11",
+ "textures": {
+  "all": "minecraft:block/dirt"
+ }
+}

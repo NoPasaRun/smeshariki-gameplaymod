@@ -1,0 +1,12 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:lead",
+		"minecraft:stick"
+	],
+	"result": {
+		"id": "gameplaymod:balloon_helm_rope",
+		"count": 1
+	}
+}

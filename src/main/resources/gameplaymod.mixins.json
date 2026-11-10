@@ -1,0 +1,22 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "com.smeshariki.gameplay.client.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"AbstractClientPlayerSlopeMixin",
+		"AvatarRendererSlopeMixin",
+		"AvatarRenderStateSlopeMixin",
+		"CameraMixin",
+		"GameRendererMixin",
+		"ItemInHandRendererMixin",
+		"KeyboardHandlerMixin",
+		"KeyboardInputMixin",
+		"LightmapRenderStateExtractorMixin",
+		"LocalPlayerSprintMixin",
+		"MouseHandlerMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -1,0 +1,12 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:paper",
+		"minecraft:white_dye"
+	],
+	"result": {
+		"id": "gameplaymod:wind_marker",
+		"count": 2
+	}
+}

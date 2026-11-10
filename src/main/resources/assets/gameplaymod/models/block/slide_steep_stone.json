@@ -1,0 +1,6 @@
+{
+ "parent": "gameplaymod:block/slide_shape_68",
+ "textures": {
+  "all": "minecraft:block/stone"
+ }
+}

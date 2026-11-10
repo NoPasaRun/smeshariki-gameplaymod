@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "gameplaymod",
+	"version": "${version}",
+	"name": "GameplayMod",
+	"description": "Игровые механики: плавающие брёвна, тарзанки и другое.",
+	"authors": ["bogdan"],
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["com.smeshariki.gameplay.GameplayMod"],
+		"client": ["com.smeshariki.gameplay.client.GameplayModClient"]
+	},
+	"mixins": ["gameplaymod.common.mixins.json", { "config": "gameplaymod.mixins.json", "environment": "client" }],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

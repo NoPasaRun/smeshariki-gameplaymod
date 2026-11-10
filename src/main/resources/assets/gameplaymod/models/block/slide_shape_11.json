@@ -1,0 +1,223 @@
+{
+ "parent": "minecraft:block/block",
+ "ambientocclusion": false,
+ "textures": {
+  "particle": "#all"
+ },
+ "elements": [
+  {
+   "from": [
+    0.0,
+    0,
+    0
+   ],
+   "to": [
+    2.0,
+    2.785,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    },
+    "west": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    2.0,
+    0,
+    0
+   ],
+   "to": [
+    4.0,
+    2.387,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    4.0,
+    0,
+    0
+   ],
+   "to": [
+    6.0,
+    1.989,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    6.0,
+    0,
+    0
+   ],
+   "to": [
+    8.0,
+    1.591,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    8.0,
+    0,
+    0
+   ],
+   "to": [
+    10.0,
+    1.194,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    10.0,
+    0,
+    0
+   ],
+   "to": [
+    12.0,
+    0.796,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    12.0,
+    0,
+    0
+   ],
+   "to": [
+    14.0,
+    0.398,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    14.0,
+    0,
+    0
+   ],
+   "to": [
+    16.0,
+    0.01,
+    16
+   ],
+   "faces": {
+    "down": {
+     "texture": "#all"
+    },
+    "north": {
+     "texture": "#all"
+    },
+    "south": {
+     "texture": "#all"
+    }
+   }
+  },
+  {
+   "from": [
+    0,
+    1.5915,
+    0
+   ],
+   "to": [
+    16,
+    1.5915,
+    16
+   ],
+   "rotation": {
+    "origin": [
+     8.0,
+     1.5915,
+     8
+    ],
+    "axis": "z",
+    "angle": -11.25,
+    "rescale": true
+   },
+   "faces": {
+    "up": {
+     "texture": "#all"
+    }
+   }
+  }
+ ]
+}
