@@ -80,8 +80,6 @@ public final class Barrages {
 	private static final Map<UUID, Vec3> LAST_POS = new HashMap<>(), VELOCITY = new HashMap<>();
 	/** Сколько тиков подряд игрок идёт медленнее порога обстрела; стрелы начинаются, когда счётчик дорос до отсрочки маркера. */
 	private static final Map<UUID, Integer> SLOW = new HashMap<>();
-	/** Счётчик растёт на 1 за медленный тик, не больше отсрочки плюс запас, и убывает на 3 за быстрый: возвращённого на курс перестают обстреливать за пару тиков. */
-	private static final int SLOW_MARGIN = 10, SLOW_RECOVERY = 3;
 
 	/** Какие группы маркеров включены у каждого игрока. Только кэш: хранит и каждый тик присылает тот, кто ими управляет. */
 	private static volatile Map<UUID, Set<String>> activeGroups = Map.of();
@@ -220,7 +218,7 @@ public final class Barrages {
 		Vec3 v = VELOCITY.getOrDefault(player.getUUID(), Vec3.ZERO), course = barrage.direction(0);
 		double along = (v.x * course.x + v.z * course.z) * 20;
 		int slow = SLOW.getOrDefault(player.getUUID(), 0);
-		slow = along < barrage.minSpeed() ? Math.min(slow + 1, barrage.grace() + SLOW_MARGIN) : Math.max(0, slow - SLOW_RECOVERY);
+		slow = along < barrage.minSpeed() ? Math.min(slow + 1, barrage.grace() + barrage.slowMargin()) : Math.max(0, slow - barrage.slowRecovery());
 		SLOW.put(player.getUUID(), slow);
 		return slow >= barrage.grace();
 	}

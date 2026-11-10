@@ -25,7 +25,7 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Обстрел: пока игрок ближе {@code Radius} к маркеру, стрелы появляются вокруг него на удалении {@code Distance} ± {@code Spread} и летят почти горизонтально со
  * скоростью {@code Speed} блоков за тик туда, где он сейчас, с промахом до {@code Miss} блоков. Упреждения нет. Стрелы идут только пока игрок наказан: его скорость вдоль
- * курса ниже {@code MinSpeed} (блоков в секунду; стоит, тормозит, идёт назад или слишком круто вбок) дольше {@code Grace} тиков. Бегущий по курсу не обстреливается совсем. Откуда
+ * курса ниже {@code MinSpeed} (блоков в секунду; стоит, тормозит, идёт назад или слишком круто вбок) дольше {@code Grace} тиков ({@code SlowMargin} и {@code SlowRecovery} — как счётчик растёт и убывает). Бегущий по курсу не обстреливается совсем. Откуда
  * сколько стрел, задаёт {@code Density}: стрел в секунду на сектор, секторы равные и идут по часовой стрелке (если смотреть сверху) от курса маркера {@code Yaw}, нулевой
  * сектор — по центру на курсе, то есть там, куда надо бежать. Длина списка задаёт ширину сектора: 12 значений — по 30°, 36 — по 10°. Игрока обстреливает только
  * ближайший к нему маркер, поэтому участки маршрута сменяют друг друга.
@@ -34,8 +34,11 @@ import net.minecraft.world.phys.Vec3;
  */
 public class BarrageEntity extends FireMarkerEntity {
 	public static final float TURN = 30f, MIN_DISTANCE = 2f, MAX_DISTANCE = 32f, DISTANCE_STEP = 2f;
-	/** Спереди по курсу в 90° стрел нет, остальное равномерно, ближе к курсу реже: всего около 4 стрел в секунду. */
-	private static final float[] DEFAULT_DENSITY = { 0, 0, 0.2f, 0.4f, 0.6f, 0.6f, 0.6f, 0.6f, 0.6f, 0.4f, 0.2f, 0 };
+	/**
+	 * Плотность по умолчанию: один сектор на весь круг, одна стрела в секунду. Профиль конкретного уровня (с какой стороны и как часто) — данные маркера
+	 * ({@code Density}), а не код.
+	 */
+	private static final float[] DEFAULT_DENSITY = { 1f };
 
 	private static final EntityDataAccessor<Float> YAW = SynchedEntityData.defineId(BarrageEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> RADIUS = SynchedEntityData.defineId(BarrageEntity.class, EntityDataSerializers.FLOAT);
@@ -45,10 +48,15 @@ public class BarrageEntity extends FireMarkerEntity {
 	private static final EntityDataAccessor<String> DENSITY = SynchedEntityData.defineId(BarrageEntity.class, EntityDataSerializers.STRING);
 
 	private float damage = 1f, speed = 1.2f, miss = 1f;
-	/** Скорость вдоль курса (блоков в секунду), ниже которой игрок наказывается; 0 — стрелы идут всегда. */
-	private float minSpeed = 5f;
+	/** Скорость вдоль курса (блоков в секунду), ниже которой игрок наказывается; 0 (по умолчанию) — стрелы идут всегда. Строгость обстрела — данные маркера. */
+	private float minSpeed = 0f;
 	/** Сколько тиков подряд игрок должен идти медленнее {@link #minSpeed}, прежде чем стрелы начнутся. */
-	private int grace = 10;
+	private int grace = 0;
+	/**
+	 * Счётчик медленных тиков у игрока растёт на 1 за медленный тик, но не выше {@code grace + slowMargin}, и убывает на {@code slowRecovery} за быстрый: чем больше запас
+	 * и меньше возврат, тем дольше обстрел не отпускает вернувшегося на курс. По умолчанию без запаса и с убыванием на 1.
+	 */
+	private int slowMargin = 0, slowRecovery = 1;
 	private float[] density;
 	/** Накопленные доли стрелы у каждого игрока по секторам: стрелы идут ровно с заданной частотой, сколько бы она ни была мала. */
 	private final Map<UUID, double[]> due = new HashMap<>();
@@ -128,6 +136,16 @@ public class BarrageEntity extends FireMarkerEntity {
 	/** Отсрочка в тиках: короткая остановка или поворот не наказываются. */
 	public int grace() {
 		return this.grace;
+	}
+
+	/** Запас счётчика медленных тиков сверх отсрочки. */
+	public int slowMargin() {
+		return this.slowMargin;
+	}
+
+	/** На сколько убывает счётчик медленных тиков за быстрый тик (не меньше 1). */
+	public int slowRecovery() {
+		return this.slowRecovery;
 	}
 
 	/** Стрел в секунду по секторам; новый массив не менять. */
@@ -219,6 +237,8 @@ public class BarrageEntity extends FireMarkerEntity {
 		out.putFloat("Miss", this.miss);
 		out.putFloat("MinSpeed", this.minSpeed);
 		out.putInt("Grace", this.grace);
+		out.putInt("SlowMargin", this.slowMargin);
+		out.putInt("SlowRecovery", this.slowRecovery);
 		List<Float> list = new ArrayList<>();
 		for (float v : density()) list.add(v);
 		out.store("Density", Codec.FLOAT.listOf(), list);
@@ -236,6 +256,8 @@ public class BarrageEntity extends FireMarkerEntity {
 		this.miss = Math.max(0f, in.getFloatOr("Miss", this.miss));
 		this.minSpeed = Math.max(0f, in.getFloatOr("MinSpeed", this.minSpeed));
 		this.grace = Math.max(0, in.getIntOr("Grace", this.grace));
+		this.slowMargin = Math.max(0, in.getIntOr("SlowMargin", this.slowMargin));
+		this.slowRecovery = Math.max(1, in.getIntOr("SlowRecovery", this.slowRecovery));
 		in.read("Density", Codec.FLOAT.listOf()).filter(list -> !list.isEmpty()).ifPresent(list -> {
 			float[] values = new float[list.size()];
 			for (int i = 0; i < values.length; i++) values[i] = list.get(i);
