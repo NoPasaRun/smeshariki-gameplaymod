@@ -34,7 +34,7 @@ public final class BalloonSnapshots {
 	}
 
 	/**
-	 * Плоты и шары, чья позиция внутри box и проходит inside, и их верёвки; пустой снимок, если их нет. Брёвна реки в файл мира не пишутся
+	 * Плоты и шары, чья позиция внутри box и проходит inside, и их верёвки, а также верёвки, закреплённые на блоках внутри области; пустой снимок, если их нет. Брёвна реки в файл мира не пишутся
 	 * ({@code noSave}), поэтому и в снимок не попадают.
 	 */
 	public static CompoundTag take(ServerLevel level, AABB box, Predicate<Vec3> inside) {
@@ -52,6 +52,12 @@ public final class BalloonSnapshots {
 				CompoundTag ropeTag = save(level, rope);
 				if (ropeTag != null) ropes.add(ropeTag);
 			}
+		}
+		// тарзанки на блоках области (свод пещеры над лавой): сгорела или сломалась после снимка — при возврате висит снова
+		for (RopeEntity rope : level.getEntitiesOfClass(RopeEntity.class, box, r -> r.anchorRaftId() == null && r.anchorEntityId() == null && inside.test(r.anchor()))) {
+			if (!seen.add(rope.getUUID())) continue;
+			CompoundTag ropeTag = save(level, rope);
+			if (ropeTag != null) ropes.add(ropeTag);
 		}
 		CompoundTag snapshot = new CompoundTag();
 		snapshot.put("Balloons", balloons);

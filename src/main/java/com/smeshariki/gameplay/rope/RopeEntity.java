@@ -178,6 +178,11 @@ public class RopeEntity extends Entity {
 		return endRaftId;
 	}
 
+	/** Сущность, на которой закреплён верёвочный якорь; {@code null} — крепление на блоке или плоту. */
+	public java.util.UUID anchorEntityId() {
+		return anchorEntityId;
+	}
+
 	public java.util.UUID anchorRaftId() {
 		return anchorRaftId;
 	}
@@ -493,6 +498,14 @@ public class RopeEntity extends Entity {
 		setPos(point);
 		Vec3 a = anchor();
 		if (!level().isClientSide() && point.distanceTo(a) > armLength() + 8) {
+			if (anchorRaftId == null && anchorEntityId == null) {
+				// закреплена на блоке: якорь не мог «улететь», значит держащего перенесли (сброс миссии, телепорт). Верёвка не ломается (иначе предмет
+				// падает под ней, например в лаву, и после сброса её нет), а отпускается и остаётся висеть под креплением
+				release();
+				setPos(a.x, a.y - length(), a.z);
+				setDeltaMovement(Vec3.ZERO);
+				return;
+			}
 			// разрыв: верёвка выпадает предметом и не остаётся на якоре (в творческом предмета нет)
 			if (level() instanceof ServerLevel server) breakRope(server, !(holder instanceof Player p && p.hasInfiniteMaterials()));
 			return;
