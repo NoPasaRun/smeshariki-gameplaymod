@@ -97,6 +97,11 @@ public final class BalloonSnapshots {
 		return level.getEntitiesOfClass(RopeEntity.class, balloon.getBoundingBox().inflate(ROPE_REACH), r -> id.equals(r.anchorRaftId()) || id.equals(r.endRaftId()));
 	}
 
+	/** Сохранение сущности для снимка (NBT без пассажиров); {@code null} — сущность не сохраняется. */
+	public static CompoundTag saveEntity(ServerLevel level, Entity entity) {
+		return save(level, entity);
+	}
+
 	private static CompoundTag save(ServerLevel level, Entity entity) {
 		TagValueOutput out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, level.registryAccess());
 		if (!entity.save(out)) return null;
