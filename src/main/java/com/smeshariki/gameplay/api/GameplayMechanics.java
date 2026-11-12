@@ -122,6 +122,18 @@ public final class GameplayMechanics {
 				BalloonSnapshots.restore(level, snapshot);
 			}
 		});
+		// общий снимок: всё остальное, что в области можно вернуть (верёвки на блоках, рамки, лодки, маркеры…); фильтр — в BalloonSnapshots.remembered
+		Mechanics.registerSnapshot(id("entities"), new Mechanics.Snapshot() {
+			@Override
+			public CompoundTag take(ServerLevel level, Mechanics.Area area) {
+				return BalloonSnapshots.takeEntities(level, box(level, area), area::contains);
+			}
+
+			@Override
+			public void restore(ServerLevel level, CompoundTag snapshot) {
+				BalloonSnapshots.restore(level, snapshot);
+			}
+		});
 		// озеро лавы: уровень лавы и маркеры волн (волны поднимают лаву, маркеры поднимаются с ней)
 		Mechanics.registerSnapshot(id("lava"), new Mechanics.Snapshot() {
 			@Override

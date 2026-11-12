@@ -34,7 +34,7 @@ public final class BalloonSnapshots {
 	}
 
 	/**
-	 * Плоты и шары, чья позиция внутри box и проходит inside, и их верёвки, а также верёвки, закреплённые на блоках внутри области; пустой снимок, если их нет. Брёвна реки в файл мира не пишутся
+	 * Плоты и шары, чья позиция внутри box и проходит inside, и их верёвки; пустой снимок, если их нет. Брёвна реки в файл мира не пишутся
 	 * ({@code noSave}), поэтому и в снимок не попадают.
 	 */
 	public static CompoundTag take(ServerLevel level, AABB box, Predicate<Vec3> inside) {
@@ -53,12 +53,6 @@ public final class BalloonSnapshots {
 				if (ropeTag != null) ropes.add(ropeTag);
 			}
 		}
-		// тарзанки на блоках области (свод пещеры над лавой): сгорела или сломалась после снимка — при возврате висит снова
-		for (RopeEntity rope : level.getEntitiesOfClass(RopeEntity.class, box, r -> r.anchorRaftId() == null && r.anchorEntityId() == null && inside.test(r.anchor()))) {
-			if (!seen.add(rope.getUUID())) continue;
-			CompoundTag ropeTag = save(level, rope);
-			if (ropeTag != null) ropes.add(ropeTag);
-		}
 		CompoundTag snapshot = new CompoundTag();
 		snapshot.put("Balloons", balloons);
 		snapshot.put("Ropes", ropes);
@@ -69,6 +63,35 @@ public final class BalloonSnapshots {
 	 * Верёвки шара: висящие на нём и те, чей конец прикреплён к нему (тарзанки на корзине). Вторые нужны в снимке тоже: когда шар
 	 * удаляют, они видят потерянный плот и отпускают конец, а новый шар с тем же UUID их уже не подбирает.
 	 */
+	/**
+	 * Общий снимок: все остальные сущности области, кроме тех, что нельзя или не нужно возвращать: игроки и смешарики, всё живое (кроме стоек для брони),
+	 * везущее кого-то и едущее на ком-то, предметы на земле, шары опыта, снаряды и падающее (недолговечное), шары и плоты с их верёвками и волны лавы (у них свои
+	 * снимки), сущности {@code buildmod:*} (платформы и стены держат состояние в памяти). Остаются верёвки на блоках, рамки и картины, маркеры, вагонетки с
+	 * содержимым, лодки, дисплеи и всё подобное. Возврат создаёт их заново с теми же UUID (как верёвки шаров); появившееся позже не удаляется.
+	 */
+	public static CompoundTag takeEntities(ServerLevel level, AABB box, Predicate<Vec3> inside) {
+		ListTag entities = new ListTag();
+		for (Entity entity : level.getEntities((Entity) null, box, e -> inside.test(e.position()) && remembered(e))) {
+			CompoundTag tag = save(level, entity);
+			if (tag != null) entities.add(tag);
+		}
+		CompoundTag snapshot = new CompoundTag();
+		snapshot.put("Entities", entities);
+		return snapshot;
+	}
+
+	/** Нужна ли сущность общему снимку (см. {@link #takeEntities}). */
+	static boolean remembered(Entity e) {
+		if (e.isRemoved() || e.isVehicle() || e.isPassenger()) return false;
+		if (e instanceof net.minecraft.world.entity.player.Player || e instanceof com.smeshariki.gameplay.character.CharacterEntity) return false;
+		if (e instanceof net.minecraft.world.entity.LivingEntity && !(e instanceof net.minecraft.world.entity.decoration.ArmorStand)) return false;
+		if (e instanceof RaftEntity || e instanceof com.smeshariki.gameplay.lava.LavaWaveEntity) return false;
+		if (e instanceof net.minecraft.world.entity.item.ItemEntity || e instanceof net.minecraft.world.entity.ExperienceOrb || e instanceof net.minecraft.world.entity.projectile.Projectile
+				|| e instanceof net.minecraft.world.entity.item.FallingBlockEntity || e instanceof net.minecraft.world.entity.item.PrimedTnt || e instanceof net.minecraft.world.entity.LightningBolt) return false;
+		if (e instanceof RopeEntity rope && (rope.anchorRaftId() != null || rope.endRaftId() != null)) return false;
+		return !net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).getNamespace().equals("buildmod");
+	}
+
 	private static List<RopeEntity> ropesOf(ServerLevel level, RaftEntity balloon) {
 		UUID id = balloon.getUUID();
 		return level.getEntitiesOfClass(RopeEntity.class, balloon.getBoundingBox().inflate(ROPE_REACH), r -> id.equals(r.anchorRaftId()) || id.equals(r.endRaftId()));
@@ -106,7 +129,7 @@ public final class BalloonSnapshots {
 		}
 		Pending pending = new Pending(level, snapshot);
 		java.util.Set<Long> chunks = new java.util.HashSet<>();
-		for (String key : new String[] {"Balloons", "Ropes"}) {
+		for (String key : new String[] {"Balloons", "Ropes", "Entities"}) {
 			for (Tag tag : snapshot.getListOrEmpty(key)) {
 				Vec3 pos = tag instanceof CompoundTag c ? c.read("Pos", Vec3.CODEC).orElse(null) : null;
 				if (pos != null) chunks.add(net.minecraft.world.level.ChunkPos.pack((int) Math.floor(pos.x) >> 4, (int) Math.floor(pos.z) >> 4));
@@ -140,6 +163,7 @@ public final class BalloonSnapshots {
 		for (Tag tag : snapshot.getListOrEmpty("Balloons")) if (tag instanceof CompoundTag c) all.add(c);
 		int balloons = all.size();
 		for (Tag tag : snapshot.getListOrEmpty("Ropes")) if (tag instanceof CompoundTag c) all.add(c);
+		for (Tag tag : snapshot.getListOrEmpty("Entities")) if (tag instanceof CompoundTag c) all.add(c);
 		for (int i = 0; i < balloons; i++) {
 			UUID id = all.get(i).read("UUID", net.minecraft.core.UUIDUtil.CODEC).orElse(null);
 			if (id == null) continue;
