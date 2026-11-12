@@ -21,7 +21,8 @@ import net.minecraft.client.player.LocalPlayer;
 public abstract class LocalPlayerSprintMixin {
 	@Redirect(method = "isSprintingPossible", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;isInShallowWater()Z"))
 	private boolean gameplaymod$shallowByCharacter(LocalPlayer player) {
-		return player.getVehicle() instanceof CharacterEntity character ? character.isInShallowWater() : player.isInShallowWater();
+		// вселённому бег разрешён и в воде (ваниль запрещает в мелкой воде)
+		return !(player.getVehicle() instanceof CharacterEntity) && player.isInShallowWater();
 	}
 
 	@Redirect(method = "shouldStopRunSprinting", at = @At(value = "FIELD", target = "Lnet/minecraft/client/player/LocalPlayer;horizontalCollision:Z"))

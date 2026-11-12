@@ -7,7 +7,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 
 /**
- * Бревно на реке: плот, который идёт по своему {@link LogRoute}, а не по полю течений. Вдоль реки идёт с постоянной скоростью,
+ * Бревно на реке: плот, который идёт по пути реки ({@link Logs.Path}, его даёт WorldMod), а не по полю течений. Вдоль реки идёт с постоянной скоростью,
  * поперёк качается синусоидой вокруг середины своего ряда. Положение зависит только от времени старта и параметров синусоиды,
  * поэтому сервер и клиент считают его одинаково. В конце маршрута разрушается ({@link RaftEntity#destroy}). В файл мира
  * не сохраняется ({@code noSave}): при выгрузке чанков брёвна пропадают, поток создаётся заново.
@@ -19,7 +19,7 @@ public class LogRaftEntity extends RaftEntity {
 	public static final double LOG_SPEED = 3.33 / 20;
 
 	private static final EntityDataAccessor<Integer> START = SynchedEntityData.defineId(LogRaftEntity.class, EntityDataSerializers.INT);
-	/** Номер маршрута в {@link LogRoutes}. */
+	/** Номер маршрута реки (его знает WorldMod). */
 	private static final EntityDataAccessor<Integer> ROUTE = SynchedEntityData.defineId(LogRaftEntity.class, EntityDataSerializers.INT);
 	/** Середина ряда и качание вокруг неё (доли размаха реки), длина волны в блоках вдоль реки и начальная фаза. */
 	private static final EntityDataAccessor<Float> CENTER = SynchedEntityData.defineId(LogRaftEntity.class, EntityDataSerializers.FLOAT);
@@ -76,13 +76,13 @@ public class LogRaftEntity extends RaftEntity {
 		return ((int) level().getGameTime() - this.entityData.get(START)) * LOG_SPEED;
 	}
 
-	private LogRoute route() {
-		return LogRoutes.get(level(), this.entityData.get(ROUTE));
+	private Logs.Path route() {
+		return Logs.path(level(), this.entityData.get(ROUTE));
 	}
 
 	@Override
 	protected void simulate() {
-		LogRoute route = route();
+		Logs.Path route = route();
 		// клиенту маршруты ещё не пришли, на сервере мир без них: стоим
 		if (route == null) {
 			if (!level().isClientSide()) discard();

@@ -36,8 +36,6 @@ public class GameplayModClient implements ClientModInitializer {
 	private static final KeyMapping ROPE_SHORTER = key("rope_shorter", GLFW.GLFW_KEY_LEFT_BRACKET);
 	/** Переключает ось колеса у стропы руля: вперёд-назад или вправо-влево. Клавишу можно делить со списком игроков. */
 	static final KeyMapping BALLOON_AXIS = key("balloon_axis", GLFW.GLFW_KEY_TAB);
-	/** Окно с описанием механики предмета, который игрок использует (и кнопка-подсказка на экране, пока у предмета оно есть). */
-	static final KeyMapping MECHANICS = key("mechanics", GLFW.GLFW_KEY_O);
 	/** Блоков за тик, пока клавиша зажата. */
 	private static final float STEP = 0.15f;
 
@@ -47,11 +45,14 @@ public class GameplayModClient implements ClientModInitializer {
 
 	/** Прыжок был нажат в прошлый тик (чтобы ловить именно нажатие, а не удержание). */
 	private static boolean wasJumpDown;
+	/** Прыжок нажат именно в этом тике (не удерживается). */
+	private static boolean jumpPressed;
 
 	/** Вселённый в персонажа жмёт прыжок: сообщаем ему, он решит, обычный это прыжок или двойной. */
 	private static void relayJump(Minecraft mc) {
 		boolean down = mc.gui.screen() == null && mc.options.keyJump.isDown();
-		if (down && !wasJumpDown && mc.player.getVehicle() instanceof CharacterEntity character) character.requestJump();
+		jumpPressed = down && !wasJumpDown;
+		if (jumpPressed && mc.player.getVehicle() instanceof CharacterEntity character) character.requestJump();
 		wasJumpDown = down;
 	}
 
@@ -75,7 +76,7 @@ public class GameplayModClient implements ClientModInitializer {
 	}
 
 	/**
-	 * Особенность персонажа: Ёжик катится клубком по тройному нажатию W (начать можно только на земле; то же нажатие выключает, как и
+	 * Особенность персонажа: Ёжик катится клубком по тройному нажатию W (начать можно только на земле; выключает прыжок, а также
 	 * остановка или вода), Карыч планирует по клавише бега (Ctrl; начать можно только в падении, до приземления). Состояние идёт серверу пакетом.
 	 */
 	private static void relayAbility(Minecraft mc) {
@@ -88,9 +89,9 @@ public class GameplayModClient implements ClientModInitializer {
 		boolean on = c.isAbilityActive();
 		boolean want;
 		if (c.getType() == Characters.YOZHIK) {
-			// триггер: тройное W включает, повторное (или остановка на плато, или вода) выключает
+			// тройное W включает; выключает прыжок (или остановка на ровном месте, или вода)
 			want = on;
-			if (on && (triple || c.isRollDone() || c.isInWater())) want = false;
+			if (on && (jumpPressed || c.isRollDone() || c.isInWater())) want = false;
 			else if (!on && triple && c.onGround() && !c.isInWater()) {
 				want = true;
 				c.startRoll(mc.player.getYRot());
@@ -166,7 +167,6 @@ public class GameplayModClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		RopeRenderer.init();
-		MechanicsHint.init();
 		SlideModels.init();
 		SpikeModels.init();
 		Autorun.init();
@@ -181,11 +181,8 @@ public class GameplayModClient implements ClientModInitializer {
 		LavaWaveRenderer.init();
 		com.smeshariki.gameplay.barrage.Barrages.holdsMarkerOnClient = FireMarkerRenderer::holdsMarker;
 		BalloonRopesClient.init();
-		RopeHints.init();
 		GlassesVision.init();
 		MenuScreens.register(Characters.GEAR_MENU, CharacterGearScreen::new);
-		ClientPlayNetworking.registerGlobalReceiver(com.smeshariki.gameplay.raft.LogRoutes.Sync.TYPE, (msg, ctx) -> com.smeshariki.gameplay.raft.LogRoutes.receive(msg));
-		net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> com.smeshariki.gameplay.raft.LogRoutes.clearClient());
 		ClientPlayNetworking.registerGlobalReceiver(ChooseCharacter.TYPE, (msg, ctx) -> {
 			Minecraft mc = ctx.client();
 			if (!(mc.gui.screen() instanceof CharacterChoiceScreen open && open.shows(msg.allowed()))) mc.gui.setScreen(new CharacterChoiceScreen(msg.allowed()));
@@ -212,8 +209,6 @@ public class GameplayModClient implements ClientModInitializer {
 		});
 		ClientTickEvents.END_CLIENT_TICK.register(mc -> {
 			Autorun.tick(mc);
-			RopeHints.tick(mc);
-			MechanicsHint.tick(mc);
 			if (mc.player == null || mc.level == null) return;
 			keepMomentum(mc);
 			BalloonRopesClient.tick(mc);

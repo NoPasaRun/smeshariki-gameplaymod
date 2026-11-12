@@ -22,28 +22,31 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * Описание механики предмета для окна {@link MechanicsScreen}. Всё берётся из языковых файлов по идентификатору предмета, поэтому описание можно
+ * Описание механики предмета для окна «Описание механики» (его рисует LevelMod). Всё берётся из языковых файлов по идентификатору предмета, поэтому описание можно
  * добавить предмету любого мода, не трогая код: {@code mechanics.<мод>.<предмет>.summary} — краткое «что это», и по порядку (с 1, пока ключи идут подряд)
  * {@code mechanics.<мод>.<предмет>.use.N} («Как пользоваться»), {@code .controls.N} («Управление»), {@code .traits.N} («Особенности»).
  * В строках доступны аргументы: {@code %1$s} — клавиша «удлинить верёвку», {@code %2$s} — «укоротить», {@code %3$s} — «сменить ось руля шара».
  */
-final class ItemMechanics {
+public final class ItemMechanics {
 	/** Разделы по порядку: идентификатор (часть ключа и заголовка {@code gui.gameplaymod.mechanics.section.<id>}). */
-	static final List<String> SECTIONS = List.of("use", "controls", "traits");
+	public static final List<String> SECTIONS = List.of("use", "controls", "traits");
 
-	/** Один раздел описания: заголовок и строки. */
-	record Section(Component title, List<Component> lines) {
+	/** Один раздел описания: идентификатор (по нему окно берёт заголовок) и строки. В строках встречаются значки {@code {lmb}}, {@code {rmb}}, {@code {wheel}}, {@code {ctrl}}, {@code {shift}}, {@code {key:название}}. */
+	public record Section(String id, List<Component> lines) {
 	}
 
-	/** Описание предмета: название, краткое пояснение и разделы. */
-	record Info(ItemStack stack, Component name, Component summary, List<Section> sections) {
+	/**
+	 * Описание: название, краткое пояснение и разделы. У группы смежных предметов (ключ {@code .group} у каждого) название и разделы — общие, а
+	 * {@code members} — описания самих предметов (используемый — первым); у одиночного предмета {@code members} пуст.
+	 */
+	public record Info(ItemStack stack, Component name, Component summary, List<Section> sections, List<Info> members) {
 	}
 
 	private ItemMechanics() {
 	}
 
 	/** Описание предмета игрока, который он сейчас использует: верёвка в руках, иначе предмет в основной руке, иначе в левой. {@code null} — описания нет. */
-	static @Nullable Info current(Minecraft mc) {
+	public static @Nullable Info current(Minecraft mc) {
 		if (mc.player == null) return null;
 		RopeEntity rope = RopeEntity.heldBy(mc.player);
 		if (rope != null) {
@@ -61,20 +64,54 @@ final class ItemMechanics {
 		return Ropes.ITEM;
 	}
 
-	/** Описание предмета; {@code null} — у него нет описания механики. */
-	static @Nullable Info of(ItemStack stack) {
-		if (stack.isEmpty()) return null;
-		Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-		String base = "mechanics." + id.getNamespace() + "." + id.getPath();
-		Language language = Language.getInstance();
-		if (!language.has(base + ".summary")) return null;
-		Object[] args = {Component.keybind("key.gameplaymod.rope_longer"), Component.keybind("key.gameplaymod.rope_shorter"), Component.keybind("key.gameplaymod.balloon_axis")};
+	private static final Object[] ARGS = {Component.keybind("key.gameplaymod.rope_longer"), Component.keybind("key.gameplaymod.rope_shorter"), Component.keybind("key.gameplaymod.balloon_axis")};
+
+	private static List<Section> sections(String base, Language language) {
 		List<Section> sections = new ArrayList<>();
 		for (String section : SECTIONS) {
 			List<Component> lines = new ArrayList<>();
-			for (int i = 1; language.has(base + "." + section + "." + i); i++) lines.add(Component.translatable(base + "." + section + "." + i, args));
-			if (!lines.isEmpty()) sections.add(new Section(Component.translatable("gui.gameplaymod.mechanics.section." + section), lines));
+			for (int i = 1; language.has(base + "." + section + "." + i); i++) lines.add(Component.translatable(base + "." + section + "." + i, ARGS));
+			if (!lines.isEmpty()) sections.add(new Section(section, lines));
 		}
-		return new Info(stack.copyWithCount(1), stack.getHoverName(), Component.translatable(base + ".summary", args), sections);
+		return sections;
+	}
+
+	private static String base(Item item) {
+		Identifier id = BuiltInRegistries.ITEM.getKey(item);
+		return "mechanics." + id.getNamespace() + "." + id.getPath();
+	}
+
+	/** Описание одного предмета без группы; {@code null} — у него нет краткого пояснения. */
+	private static @Nullable Info single(ItemStack stack, Language language) {
+		String base = base(stack.getItem());
+		if (!language.has(base + ".summary")) return null;
+		return new Info(stack.copyWithCount(1), stack.getHoverName(), Component.translatable(base + ".summary", ARGS), sections(base, language), List.of());
+	}
+
+	/**
+	 * Описание предмета; {@code null} — у него нет описания механики. Если у предмета есть ключ {@code mechanics.<мод>.<предмет>.group} (значение — имя группы),
+	 * описание общее на всю группу: {@code mechanics.group.<группа>.title}, {@code .summary}, {@code .use.N}, {@code .controls.N}, {@code .traits.N}, а предметы
+	 * группы идут отдельными блоками со своими строками.
+	 */
+	public static @Nullable Info of(ItemStack stack) {
+		if (stack.isEmpty()) return null;
+		Language language = Language.getInstance();
+		Info own = single(stack, language);
+		String base = base(stack.getItem());
+		if (!language.has(base + ".group")) return own;
+		String group = language.getOrDefault(base + ".group");
+		String gb = "mechanics.group." + group;
+		if (!language.has(gb + ".title")) return own;
+		List<Info> members = new ArrayList<>();
+		if (own != null) members.add(own);
+		for (Item item : BuiltInRegistries.ITEM) {
+			if (item == stack.getItem()) continue;
+			String b = base(item);
+			if (!language.has(b + ".group") || !group.equals(language.getOrDefault(b + ".group"))) continue;
+			Info member = single(new ItemStack(item), language);
+			if (member != null) members.add(member);
+		}
+		Component summary = language.has(gb + ".summary") ? Component.translatable(gb + ".summary", ARGS) : Component.empty();
+		return new Info(stack.copyWithCount(1), Component.translatable(gb + ".title"), summary, sections(gb, language), members);
 	}
 }

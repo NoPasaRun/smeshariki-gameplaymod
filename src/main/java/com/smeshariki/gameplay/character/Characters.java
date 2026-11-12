@@ -33,13 +33,13 @@ import net.minecraft.world.item.SpawnEggItem;
  * чтобы призванные раньше существа не пропали.
  */
 public final class Characters {
-	public static EntityType<CharacterEntity> KROSH, YOZHIK, KARYCH, LOSYASH;
+	public static EntityType<CharacterEntity> KROSH, YOZHIK, KARYCH, LOSYASH, NYUSHA, BARASH, SOVUNYA;
 	/** Все персонажи в порядке регистрации: новый появляется в окнах и уровнях сам. */
 	private static final List<EntityType<CharacterEntity>> ALL = new ArrayList<>();
 	public static MenuType<CharacterMenu> GEAR_MENU;
 	/** Очки: надеваются в слот глаз; дают вселённому нормальное зрение (Ёжику) или «рыбий глаз» (остальным), трескаются от ударов. */
 	public static Item GLASSES;
-	public static Item KROSH_EGG, YOZHIK_EGG, KARYCH_EGG, LOSYASH_EGG;
+	public static Item KROSH_EGG, YOZHIK_EGG, KARYCH_EGG, LOSYASH_EGG, NYUSHA_EGG, BARASH_EGG, SOVUNYA_EGG;
 
 	/** Очки выдерживают столько единиц урона по персонажу, потом разбиваются. */
 	private static final int GLASSES_DURABILITY = 30;
@@ -84,16 +84,25 @@ public final class Characters {
 		YOZHIK = entity("yozhik", 0.59f * SCALE, 0xC85378);
 		KARYCH = entity("karych", (0.84f - 0.075f) * SCALE, 0x2E8FD6);
 		LOSYASH = entity("losyash", (0.68f - 0.063f + 0.05f) * SCALE, 0xF1A300);
+		NYUSHA = entity("nyusha", 0.60f * SCALE, 0xF2849E);
+		BARASH = entity("barash", 0.637f * SCALE, 0xB68FCF);
+		SOVUNYA = entity("sovunya", 0.64f * SCALE, 0x9B6FC0);
 		KROSH_EGG = egg("krosh_tailed_spawn_egg", KROSH);
 		YOZHIK_EGG = egg("yozhik_spawn_egg", YOZHIK);
 		KARYCH_EGG = egg("karych_spawn_egg", KARYCH);
 		LOSYASH_EGG = egg("losyash_spawn_egg", LOSYASH);
+		NYUSHA_EGG = egg("nyusha_spawn_egg", NYUSHA);
+		BARASH_EGG = egg("barash_spawn_egg", BARASH);
+		SOVUNYA_EGG = egg("sovunya_spawn_egg", SOVUNYA);
 		ResourceKey<CreativeModeTab> tab = ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("spawn_eggs"));
 		CreativeModeTabEvents.modifyOutputEvent(tab).register(output -> {
 			output.accept(KROSH_EGG);
 			output.accept(YOZHIK_EGG);
 			output.accept(KARYCH_EGG);
 			output.accept(LOSYASH_EGG);
+			output.accept(NYUSHA_EGG);
+			output.accept(BARASH_EGG);
+			output.accept(SOVUNYA_EGG);
 		});
 		// вселённый персонаж ставит блоки как обычно; ломает слабее обычного (CharacterEntity.BREAK_SPEED_FACTOR, PlayerMixin)
 		ResourceKey<Item> glassesKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "glasses"));

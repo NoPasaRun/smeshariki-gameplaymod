@@ -22,7 +22,7 @@ import net.minecraft.world.phys.Vec3;
  * шар не сносит. Ветер и цель считает сервер и передаёт в данных сущности, толчки — пакетом; клиент считает то же движение и
  * понемногу подтягивается к присланной позиции, чтобы расхождение не копилось. Нос шара задаётся при сборке и больше не меняется.
  */
-public class BalloonEntity extends RaftEntity {
+public class BalloonEntity extends RaftEntity implements com.smeshariki.gameplay.api.Grouped {
 	/** Больше блоков в один шар не собираем: полая сфера радиусом 6 и корзина. */
 	public static final int MAX_BLOCKS = 600;
 	/** Скорость при полном ветре (в центре маркера), блоков за тик (25 блоков в секунду; было 5, усилено 2026-11-05). К краю зоны маркера ветер слабее, см. {@link Winds#at}. */
@@ -176,8 +176,14 @@ public class BalloonEntity extends RaftEntity {
 		if (free(x, y, z)) place(x, y, z);
 	}
 
+	@Override
 	public String group() {
 		return group;
+	}
+
+	@Override
+	public void setGroup(String group) {
+		this.group = group == null ? "" : group;
 	}
 
 	/** Топливо всех строп высоты на этом шаре (загруженных). */

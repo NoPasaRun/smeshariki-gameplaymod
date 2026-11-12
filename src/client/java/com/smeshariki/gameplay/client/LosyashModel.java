@@ -32,20 +32,11 @@ final class LosyashModel implements CharacterModel {
 	private static final Voxels.Mesh NOSE = Voxels.Mesh.ellipsoids(PIXEL / 2, 0.5f, new float[][] { { 0, 0, 0, 0.15f, 0.10f, 0.11f } });
 	private static final Voxels.Mesh EYE = Voxels.Mesh.ellipsoids(PIXEL / 2, 0.5f, new float[][] { { 0, 0, 0, 0.10f, 0.105f, 0.08f } });
 	private static final Voxels.Mesh EAR = Voxels.Mesh.ellipsoids(PIXEL / 2, 0.5f, new float[][] { { 0, 0, 0, 0.07f, 0.05f, 0.04f } });
-	/** Рука и нога цвета тела, на конце копыто (коричневое, шире и с носком вперёд). */
-	private static final Voxels.Mesh ARM = Voxels.Mesh.ellipsoids(PIXEL / 2, 0.5f, new float[][] { { 0, 0, 0, 0.065f, 0.08f, 0.065f } });
-	private static final Voxels.Mesh LEG = Voxels.Mesh.ellipsoids(PIXEL / 2, 0.5f, new float[][] { { 0, 0, 0, 0.055f, 0.13f, 0.05f } });
-	/** Мини-кубик на плече сверху руки (3×3×3 клетки по 1/32). */
-	private static final Voxels.Mesh SHOULDER = Voxels.Mesh.of(PIXEL / 2, 0.5f, 0.06f, 0.06f, 0.06f, (x, y, z) -> Math.abs(x) < 0.05f && Math.abs(y) < 0.05f && Math.abs(z) < 0.05f);
-	private static final Voxels.Mesh HOOF = Voxels.Mesh.of(PIXEL / 2, 0.5f, 0.12f, 0.08f, 0.14f, (x, y, z) -> {
-		float dx = x / 0.075f, dy = y / 0.065f, dz = (z - 0.015f) / 0.095f;
-		return y <= 0.03f && dx * dx + dy * dy + dz * dz <= 1f;
-	});
 	private static final Voxels.Mesh ANTLER_L = antler(false), ANTLER_R = antler(true);
 
 	private static final Voxels.Paint FACE = RoundBody.FACE;
 	private static final Voxels.Paint NOSE_PAINT = shifted(NOSE_AT), EYE_L_PAINT = shifted(EYE_L), EYE_R_PAINT = shifted(EYE_R);
-	private static final Voxels.Paint ARM_PAINT = Voxels.gradient(0.08f), ANTLER_PAINT = Voxels.solid(72, 136), BODY_PAINT = Voxels.solid(200, 64);
+	private static final Voxels.Paint ANTLER_PAINT = HoofLimbs.HOOF_PAINT, BODY_PAINT = HoofLimbs.BODY_PAINT;
 
 	/** Рог плоский: ладонь и три зубца — отрезки со скруглённым сечением, правый рог зеркален левому. */
 	private static Voxels.Mesh antler(boolean mirror) {
@@ -103,33 +94,12 @@ final class LosyashModel implements CharacterModel {
 		Voxels.draw(c, p, EAR, new Matrix4f(body).translate(-0.29f, 0.25f, 0).rotateZ((float) Math.toRadians(-20)), BODY_PAINT, light, overlay);
 		Voxels.draw(c, p, EAR, new Matrix4f(body).translate(0.29f, 0.25f, 0).rotateZ((float) Math.toRadians(20)), BODY_PAINT, light, overlay);
 
-		// ручки висят по бокам и качаются вокруг плеча в противофазе с ногами
-		arm(c, p, head, -1, -swing * 0.6f, pose, light, overlay);
-		arm(c, p, head, 1, swing * 0.6f, pose, light, overlay);
-
-		leg(c, p, feet, -0.12f, swing * 0.15f, pose, light, overlay);
-		leg(c, p, feet, 0.12f, -swing * 0.15f, pose, light, overlay);
+		// ручки и ноги с копытами — общие у Нюши, Бараша и Лосяша (HoofLimbs)
+		HoofLimbs.draw(c, p, head, feet, BODY_Y, 0.12f, swing, pose, light, overlay);
 	}
 
 	@Override
 	public void renderHand(VertexConsumer c, PoseStack.Pose p, Matrix4f m, int light, int overlay) {
-		Voxels.draw(c, p, ARM, m, ARM_PAINT, light, overlay);
-		Voxels.draw(c, p, HOOF, new Matrix4f(m).translate(0, -0.1f, 0.01f), ANTLER_PAINT, light, overlay);
-		Voxels.draw(c, p, SHOULDER, new Matrix4f(m).translate(0, 0.08f, 0), BODY_PAINT, light, overlay);
-	}
-
-	/** Рука-копыто: цвета тела, на конце копыто, на плече мини-кубик. */
-	private static void arm(VertexConsumer c, PoseStack.Pose p, Matrix4f root, int side, float swing, CharacterPose pose, int light, int overlay) {
-		Matrix4f m = Limbs.arm(root, BODY_Y, side, Limbs.tilt(side), swing, 0.08f, pose);
-		Voxels.draw(c, p, ARM, m, ARM_PAINT, light, overlay);
-		Voxels.draw(c, p, HOOF, new Matrix4f(m).translate(0, -0.1f, 0.01f), ANTLER_PAINT, light, overlay);
-		Voxels.draw(c, p, SHOULDER, new Matrix4f(m).translate(0, 0.08f, 0), BODY_PAINT, light, overlay);
-	}
-
-	/** Нога-копыто: короткая нога цвета тела и копыто на земле. */
-	private static void leg(VertexConsumer c, PoseStack.Pose p, Matrix4f root, float x, float stepZ, CharacterPose pose, int light, int overlay) {
-		Matrix4f base = Limbs.leg(root, x, Limbs.hip(BODY_Y), stepZ, pose);
-		Voxels.draw(c, p, LEG, new Matrix4f(base).translate(0, 0.2f, 0), BODY_PAINT, light, overlay);
-		Voxels.draw(c, p, HOOF, new Matrix4f(base).translate(0, 0.065f, 0.02f), ANTLER_PAINT, light, overlay);
+		HoofLimbs.hand(c, p, m, light, overlay);
 	}
 }

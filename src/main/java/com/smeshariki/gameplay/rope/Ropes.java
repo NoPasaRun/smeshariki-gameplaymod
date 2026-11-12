@@ -178,7 +178,7 @@ public final class Ropes {
 	}
 
 	/**
-	 * Длину верёвки в выживании и приключении менять нельзя ни в какую сторону: тарзанки (обычная и без размаха). Верёвка-подтяжка и стропы шара не в счёте,
+	 * Длину тарзанок (обычной и без размаха) в выживании и приключении менять нельзя ни в какую сторону. Верёвка-подтяжка и стропы шара не в счёте,
 	 * у них своё правило (с креплением на блоке не удлинить). В творческом режиме длина меняется у всех.
 	 */
 	public static boolean lengthFixed(RopeEntity rope) {
@@ -209,7 +209,8 @@ public final class Ropes {
 			Set<Integer> released = RELEASED.getOrDefault(player.getUUID(), Set.of());
 			Set<Integer> touching = new HashSet<>();
 			RopeEntity grab = null;
-			for (RopeEntity rope : player.level().getEntitiesOfClass(RopeEntity.class, box.inflate(RopeEntity.LONGEST + 1), r -> r.mode() != RopeEntity.HELD)) {
+			// автозацеп только у обычной тарзанки с большим раскачиванием
+			for (RopeEntity rope : player.level().getEntitiesOfClass(RopeEntity.class, box.inflate(RopeEntity.LONGEST + 1), r -> r.getClass() == RopeEntity.class && r.mode() != RopeEntity.HELD)) {
 				if (!rope.touches(box)) continue;
 				touching.add(rope.getId());
 				if (grab == null && !released.contains(rope.getId())) grab = rope;

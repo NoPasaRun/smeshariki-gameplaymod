@@ -76,8 +76,60 @@ public final class BalloonSnapshots {
 		return tag;
 	}
 
-	/** Возвращает шары и их верёвки к снимку: нынешние (и все верёвки на них, даже повешенные позже) удаляются. */
+	/** Возврат, ждущий загрузки чанков: старые сущности в чанках без обработки сущностей (игроки ушли) невидимы для поиска по UUID, и новые с тем же UUID ваниль отвергает. */
+	private static final class Pending {
+		final ServerLevel level;
+		final CompoundTag snapshot;
+		final java.util.List<long[]> forced = new ArrayList<>();
+		int wait = 3, attempts;
+
+		Pending(ServerLevel level, CompoundTag snapshot) {
+			this.level = level;
+			this.snapshot = snapshot;
+		}
+	}
+
+	private static final List<Pending> PENDING = new ArrayList<>();
+	private static boolean registered;
+
+	/** Возвращает шары и их верёвки к снимку: нынешние (и все верёвки на них, даже повешенные позже) удаляются. Сами сущности ставятся через несколько тиков, когда чанки снимка обрабатываются. */
 	public static void restore(ServerLevel level, CompoundTag snapshot) {
+		if (!registered) {
+			registered = true;
+			net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(BalloonSnapshots::tick);
+		}
+		Pending pending = new Pending(level, snapshot);
+		java.util.Set<Long> chunks = new java.util.HashSet<>();
+		for (String key : new String[] {"Balloons", "Ropes"}) {
+			for (Tag tag : snapshot.getListOrEmpty(key)) {
+				Vec3 pos = tag instanceof CompoundTag c ? c.read("Pos", Vec3.CODEC).orElse(null) : null;
+				if (pos != null) chunks.add(net.minecraft.world.level.ChunkPos.pack((int) Math.floor(pos.x) >> 4, (int) Math.floor(pos.z) >> 4));
+			}
+		}
+		for (long chunk : chunks) {
+			int cx = net.minecraft.world.level.ChunkPos.getX(chunk), cz = net.minecraft.world.level.ChunkPos.getZ(chunk);
+			if (level.setChunkForced(cx, cz, true)) pending.forced.add(new long[] {cx, cz});
+		}
+		PENDING.add(pending);
+	}
+
+	private static void tick(net.minecraft.server.MinecraftServer server) {
+		for (java.util.Iterator<Pending> it = PENDING.iterator(); it.hasNext();) {
+			Pending p = it.next();
+			if (--p.wait > 0) continue;
+			int failed = place(p.level, p.snapshot);
+			if (failed > 0 && ++p.attempts < 6) {
+				p.wait = 5;
+				continue;
+			}
+			for (long[] c : p.forced) p.level.setChunkForced((int) c[0], (int) c[1], false);
+			it.remove();
+		}
+	}
+
+	/** Сколько сущностей ваниль не приняла (UUID ещё занят). */
+	private static int place(ServerLevel level, CompoundTag snapshot) {
+		int failed = 0;
 		List<CompoundTag> all = new ArrayList<>();
 		for (Tag tag : snapshot.getListOrEmpty("Balloons")) if (tag instanceof CompoundTag c) all.add(c);
 		int balloons = all.size();
@@ -95,15 +147,14 @@ public final class BalloonSnapshots {
 			UUID id = tag.read("UUID", net.minecraft.core.UUIDUtil.CODEC).orElse(null);
 			// верёвка из снимка, отвязанная от шара после снимка, ещё жива
 			if (id != null && level.getEntity(id) instanceof Entity alive) alive.discard();
-			Vec3 pos = tag.read("Pos", Vec3.CODEC).orElse(null);
-			if (pos != null) level.getChunk((int) Math.floor(pos.x) >> 4, (int) Math.floor(pos.z) >> 4);
 			Entity entity;
 			try {
 				entity = EntityType.loadEntityRecursive(tag.copy(), level, request, EntityProcessor.NOP);
 			} catch (RuntimeException e) {
 				continue;
 			}
-			if (entity != null) level.addFreshEntity(entity);
+			if (entity != null && !level.addFreshEntity(entity)) failed++;
 		}
+		return failed;
 	}
 }

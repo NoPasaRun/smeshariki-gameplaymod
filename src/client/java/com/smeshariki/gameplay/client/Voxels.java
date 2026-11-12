@@ -96,6 +96,28 @@ final class Voxels {
 		}
 	}
 
+	/**
+	 * Отрезки-капсулы: у каждого концы (x1, y1, z1), (x2, y2, z2) и радиус r (с нулевой длиной — шар). Тело — объединение капсул;
+	 * хорошо для рогов, хвостиков и лепестков.
+	 */
+	static Mesh capsules(float v, float offset, float[][] segs) {
+		float hx = 0, hy = 0, hz = 0;
+		for (float[] s : segs) {
+			hx = Math.max(hx, Math.max(Math.abs(s[0]), Math.abs(s[3])) + s[6]);
+			hy = Math.max(hy, Math.max(Math.abs(s[1]), Math.abs(s[4])) + s[6]);
+			hz = Math.max(hz, Math.max(Math.abs(s[2]), Math.abs(s[5])) + s[6]);
+		}
+		return Mesh.of(v, offset, hx, hy, hz, (x, y, z) -> {
+			for (float[] s : segs) {
+				float dx = s[3] - s[0], dy = s[4] - s[1], dz = s[5] - s[2], len2 = dx * dx + dy * dy + dz * dz;
+				float t = len2 < 1e-9f ? 0 : Mth.clamp(((x - s[0]) * dx + (y - s[1]) * dy + (z - s[2]) * dz) / len2, 0f, 1f);
+				float ex = x - (s[0] + t * dx), ey = y - (s[1] + t * dy), ez = z - (s[2] + t * dz);
+				if (ex * ex + ey * ey + ez * ez <= s[6] * s[6]) return true;
+			}
+			return false;
+		});
+	}
+
 	/** Текстурные координаты вершины; {@code front} — передняя половина тела (для лица и спины). */
 	interface Paint {
 		void uv(float x, float y, float z, boolean front, float[] out);

@@ -27,6 +27,9 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 	private static final float HALF_WIDTH = 0.07f;
 	private static final int COLOR_R = 0xB0, COLOR_G = 0x7A, COLOR_B = 0x3A;
 	private static final int PALE_R = 0xE6, PALE_G = 0xDC, PALE_B = 0xC0;
+	/** Обычная тарзанка (большой размах) — зеленоватая, без размаха — багровая. */
+	private static final int WIDE_R = 0x5E, WIDE_G = 0xA0, WIDE_B = 0x4A;
+	private static final int CALM_R = 0x9A, CALM_G = 0x24, CALM_B = 0x38;
 
 	/** Где конец верёвки в кадре от первого лица: вперёд, вправо и вниз от глаз, блоков. */
 	private static final double HAND_FORWARD = 0.7, HAND_RIGHT = 0.4, HAND_DOWN = 0.25;
@@ -49,6 +52,8 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 		int handle = -1;
 		/** Цвет нити: у верёвки для подтягивания светлее. */
 		boolean pale;
+		/** 1 — зеленоватая (большой размах), 2 — багровая (малый). */
+		int kind;
 	}
 
 	public RopeRenderer(EntityRendererProvider.Context context) {
@@ -74,6 +79,7 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 		state.tail = entity.mode() == RopeEntity.HELD ? Math.max(0, entity.length() - state.arm) : 0;
 		state.toEnd = Vec3.ZERO;
 		state.pale = entity instanceof com.smeshariki.gameplay.rope.PullRopeEntity;
+		state.kind = entity.getClass() == RopeEntity.class ? 1 : entity instanceof com.smeshariki.gameplay.rope.CalmRopeEntity ? 2 : 0;
 		state.handle = entity instanceof BalloonRopeEntity rope ? (rope.kind() == BalloonRopeItem.Kind.LIFT ? 0x4F9BE8 : 0xE8603C) : -1;
 		if (entity.mode() == RopeEntity.HELD) {
 			Entity holder = entity.level().getEntity(entity.holderId());
@@ -103,9 +109,9 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 			boolean hangs = state.tail > 0.01;
 			// у строп верёвка кончается вершиной ручки: она сидит над самым концом
 			Vec3 apex = state.handle < 0 ? tailEnd : tailEnd.subtract(handleDown(a, tailEnd, hangs).scale(HANDLE_HEIGHT));
-			strand(consumer, p, a, hangs ? b : apex, sag, state.pale, light);
+			strand(consumer, p, a, hangs ? b : apex, sag, state.pale, state.kind, light);
 			// остаток верёвки, свисающий из руки
-			if (hangs) strand(consumer, p, b, apex, 0, state.pale, light);
+			if (hangs) strand(consumer, p, b, apex, 0, state.pale, state.kind, light);
 			if (state.handle >= 0) handle(consumer, p, apex, tailEnd, state.handle, light);
 		});
 		super.submit(state, pose, collector, camera);
@@ -137,14 +143,15 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 	}
 
 	/** Верёвка от {@code from} до {@code to} с провисом: две перекрёстные ленты — со всех сторон она выглядит объёмной. */
-	private static void strand(VertexConsumer consumer, PoseStack.Pose p, Vec3 from, Vec3 to, double sag, boolean pale, int light) {
+	private static void strand(VertexConsumer consumer, PoseStack.Pose p, Vec3 from, Vec3 to, double sag, boolean pale, int kind, int light) {
 		Vec3 prev = from;
 		for (int i = 1; i <= SEGMENTS; i++) {
 			Vec3 cur = RopeEntity.curvePoint(from, to, sag, (double) i / SEGMENTS);
 			Vec3 dir = cur.subtract(prev);
 			if (dir.lengthSqr() > 1e-8) {
 				int shade = i % 2 == 0 ? 255 : 205;
-				int r = (pale ? PALE_R : COLOR_R) * shade / 255, g = (pale ? PALE_G : COLOR_G) * shade / 255, bl = (pale ? PALE_B : COLOR_B) * shade / 255;
+				int br = pale ? PALE_R : kind == 1 ? WIDE_R : kind == 2 ? CALM_R : COLOR_R, bg = pale ? PALE_G : kind == 1 ? WIDE_G : kind == 2 ? CALM_G : COLOR_G, bb = pale ? PALE_B : kind == 1 ? WIDE_B : kind == 2 ? CALM_B : COLOR_B;
+				int r = br * shade / 255, g = bg * shade / 255, bl = bb * shade / 255;
 				Vec3 side1 = dir.cross(Math.abs(dir.y) > 0.99 * dir.length() ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0)).normalize().scale(HALF_WIDTH);
 				Vec3 side2 = dir.cross(side1).normalize().scale(HALF_WIDTH);
 				quad(consumer, p, prev, cur, side1, r, g, bl, light);

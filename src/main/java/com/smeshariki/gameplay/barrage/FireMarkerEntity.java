@@ -20,7 +20,7 @@ import net.minecraft.world.phys.Vec3;
  * Общее у обстрела и мёртвой зоны: невидимый маркер, виден и задевается прицелом, только пока в руке маркер обстрела или зоны. С маркером в
  * руке: ПКМ — {@link #turn}, Ctrl+ПКМ и Ctrl+ЛКМ — {@link #tune}, ЛКМ — убрать. Всё остальное задаётся данными сущности ({@code /data}).
  */
-public abstract class FireMarkerEntity extends Entity {
+public abstract class FireMarkerEntity extends Entity implements com.smeshariki.gameplay.api.Grouped {
 	protected FireMarkerEntity(EntityType<? extends FireMarkerEntity> type, Level level) {
 		super(type, level);
 		this.noPhysics = true;
@@ -31,10 +31,12 @@ public abstract class FireMarkerEntity extends Entity {
 	/** Имя группы: непустую стреляет, только пока её включил для игрока {@link Barrages#setActiveGroups} (триггеры LevelMod). Пустая — стреляет всегда. */
 	private String group = "";
 
+	@Override
 	public String group() {
 		return this.group;
 	}
 
+	@Override
 	public void setGroup(String group) {
 		this.group = group;
 	}

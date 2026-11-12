@@ -188,6 +188,9 @@ public class CharacterEntity extends PathfinderMob {
 		if (getType() == Characters.YOZHIK) return Items.APPLE;
 		if (getType() == Characters.KROSH) return Items.CARROT;
 		if (getType() == Characters.LOSYASH) return Items.BREAD;
+		if (getType() == Characters.NYUSHA) return Items.COOKIE;
+		if (getType() == Characters.BARASH) return Items.SWEET_BERRIES;
+		if (getType() == Characters.SOVUNYA) return Items.BEETROOT;
 		return Items.PUMPKIN_PIE;
 	}
 
@@ -443,6 +446,17 @@ public class CharacterEntity extends PathfinderMob {
 	@Override
 	public LivingEntity getControllingPassenger() {
 		return getFirstPassenger() instanceof Player player ? player : null;
+	}
+
+	/**
+	 * Игрок стал пассажиром — он вселён, и невидимость должна быть на нём. При входе в мир посадка восстанавливается из файла уже после входа игрока
+	 * ({@link Characters}: на входе эффект снимается, раз игрок ещё не сидит), поэтому ставить его надо здесь, а не только в {@link #possess}.
+	 */
+	@Override
+	protected void addPassenger(Entity passenger) {
+		super.addPassenger(passenger);
+		if (!level().isClientSide() && passenger instanceof Player player && !player.hasEffect(MobEffects.INVISIBILITY))
+			player.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, MobEffectInstance.INFINITE_DURATION, 0, false, false, false));
 	}
 
 	@Override
@@ -774,6 +788,11 @@ public class CharacterEntity extends PathfinderMob {
 				swimUp();
 				swum = true;
 			}
+			// в воде тонет втрое быстрее ванили (её тяга 0,02 за тик): всплытие дорогое, дно близко
+			if (!swum && !onGround()) {
+				Vec3 v = getDeltaMovement();
+				setDeltaMovement(v.x, v.y - WATER_SINK, v.z);
+			}
 		}
 		if (!swum) regenStamina();
 		if (isInWater()) return;
@@ -793,8 +812,10 @@ public class CharacterEntity extends PathfinderMob {
 
 	/** Скорость всплытия, блоков за тик, и прибавка к вертикальной скорости за тик, пока зажат прыжок. */
 	public static final double SWIM_UP = 0.1, SWIM_ACCEL = 0.06;
-	/** Расход стамины за тик всплытия (полной хватает на 80 тиков, около 8 блоков вверх). */
-	public static final float SWIM_COST = 1f / 80f;
+	/** Добавка к тяге вниз в воде за тик (у ванили 0,02: вместе втрое больше). */
+	public static final double WATER_SINK = 0.04;
+	/** Расход стамины за тик всплытия (полной хватает на 40 тиков, около 4 блоков вверх). */
+	public static final float SWIM_COST = 1f / 40f;
 	/** Восстановление за тик (с нуля до полной за 200 тиков) и пауза после последнего всплытия, тиков. */
 	public static final float STAMINA_REGEN = 1f / 200f;
 	public static final int STAMINA_REGEN_DELAY = 20;

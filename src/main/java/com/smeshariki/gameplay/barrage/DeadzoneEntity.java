@@ -16,12 +16,12 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Мёртвая зона: ящик с центром в позиции сущности, половины сторон {@code HalfX}, {@code HalfY}, {@code HalfZ}. Воздух в зону не входит: её клетки — непустые
- * блоки ящика (клетки, чей центр внутри него), и игрок в зоне, только если стоит на таком блоке или находится в нём (вода, трава). Игрока в зоне стрелы бьют со всех сторон с
- * удаления {@code Distance}, с упреждением, {@code Rate} стрел в секунду со скоростью {@code Speed} и разбросом {@code Spread} блоков. Обстрел по кольцу на него в это время не действует. Так
- * ставятся границы маршрута: вокруг коридора обстрел пугает, а за край коридора лучше не ходить.
+ * Мёртвая зона: ящик с центром в позиции сущности, половины сторон {@code HalfX}, {@code HalfY}, {@code HalfZ}. Игрок в зоне гибнет сразу (вселённого убивает его
+ * персонаж, игроку выбирают нового); творческий режим и наблюдатели не в счёт. Для игрока воздух в зону не входит: её клетки — непустые блоки ящика, и он в зоне,
+ * только если стоит на таком блоке или находится в нём (вода, трава). Остальное живое и брёвна реки — всё, что коснулось ящика (воздух тоже). Стрелами зона не стреляет:
+ * это делает {@link BarrageEntity}.
  * <p>
- * Настраивается, например: {@code /data merge entity @e[type=gameplaymod:deadzone,sort=nearest,limit=1] {HalfX:20f,HalfY:10f,HalfZ:5f,Rate:6f,Damage:3f}}
+ * Настраивается, например: {@code /data merge entity @e[type=gameplaymod:deadzone,sort=nearest,limit=1] {HalfX:20f,HalfY:10f,HalfZ:5f}}
  */
 public class DeadzoneEntity extends FireMarkerEntity {
 	private static final float[] SIZES = { 4, 8, 16, 32 };
@@ -29,11 +29,6 @@ public class DeadzoneEntity extends FireMarkerEntity {
 	private static final EntityDataAccessor<Float> HALF_X = SynchedEntityData.defineId(DeadzoneEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> HALF_Y = SynchedEntityData.defineId(DeadzoneEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> HALF_Z = SynchedEntityData.defineId(DeadzoneEntity.class, EntityDataSerializers.FLOAT);
-
-	private float rate = 4f, spread = 0.5f, damage = 2f, distance = 12f, speed = 1.8f;
-	/** Зона гибели ({@code Kill:1b}): не стреляет; всё живое, коснувшееся ящика, гибнет, брёвна реки исчезают. Ящик целиком, воздух тоже. */
-	private boolean kill;
-	private double due;
 
 	public DeadzoneEntity(EntityType<? extends DeadzoneEntity> type, Level level) {
 		super(type, level);
@@ -64,38 +59,19 @@ public class DeadzoneEntity extends FireMarkerEntity {
 		this.entityData.set(HALF_Z, Math.max(0.5f, z));
 	}
 
-	public boolean isKill() {
-		return this.kill;
-	}
-
-	/** Ящик зоны, целиком (для зоны гибели). */
+	/** Ящик зоны, целиком. */
 	public AABB box() {
 		return new AABB(getX() - halfX(), getY() - halfY(), getZ() - halfZ(), getX() + halfX(), getY() + halfY(), getZ() + halfZ());
-	}
-
-	public float spread() {
-		return this.spread;
-	}
-
-	public float damage() {
-		return this.damage;
-	}
-
-	public float distance() {
-		return this.distance;
-	}
-
-	public float speed() {
-		return this.speed;
 	}
 
 	/** Насколько ниже ног ищется блок зоны, на котором стоит тело. */
 	private static final double FEET = 0.2;
 
-	/** Клетки зоны (центр внутри ящика): нижний и верхний углы включительно. */
+	/** Клетки зоны: любой блок, часть которого лежит внутри ящика (не только касание грани); нижний и верхний углы включительно. */
 	public static BlockPos[] cells(Vec3 center, double hx, double hy, double hz) {
-		return new BlockPos[] { new BlockPos(Mth.ceil(center.x - hx - 0.5), Mth.ceil(center.y - hy - 0.5), Mth.ceil(center.z - hz - 0.5)),
-				new BlockPos(Mth.floor(center.x + hx - 0.5), Mth.floor(center.y + hy - 0.5), Mth.floor(center.z + hz - 0.5)) };
+		double e = 1e-6;
+		return new BlockPos[] { new BlockPos(Mth.floor(center.x - hx + e), Mth.floor(center.y - hy + e), Mth.floor(center.z - hz + e)),
+				new BlockPos(Mth.ceil(center.x + hx - e) - 1, Mth.ceil(center.y + hy - e) - 1, Mth.ceil(center.z + hz - e) - 1) };
 	}
 
 	public BlockPos[] cells() {
@@ -121,14 +97,6 @@ public class DeadzoneEntity extends FireMarkerEntity {
 		super.placedBy(player, pos);
 		float half = DeadzoneScroll.placeHalf(player.getUUID());
 		setHalf(half, halfY(), half);
-	}
-
-	/** Сколько стрел на этот тик; зона одна на всех, стрелы идут по очереди по стоящим внутри. */
-	int dueShots(int players) {
-		this.due += this.rate * players / 20.0;
-		int shots = (int) this.due;
-		this.due -= shots;
-		return shots;
 	}
 
 	@Override
@@ -166,23 +134,11 @@ public class DeadzoneEntity extends FireMarkerEntity {
 		out.putFloat("HalfX", halfX());
 		out.putFloat("HalfY", halfY());
 		out.putFloat("HalfZ", halfZ());
-		out.putBoolean("Kill", this.kill);
-		out.putFloat("Rate", this.rate);
-		out.putFloat("Spread", this.spread);
-		out.putFloat("Damage", this.damage);
-		out.putFloat("Distance", this.distance);
-		out.putFloat("Speed", this.speed);
 	}
 
 	@Override
 	protected void readAdditionalSaveData(ValueInput in) {
 		super.readAdditionalSaveData(in);
 		setHalf(in.getFloatOr("HalfX", halfX()), in.getFloatOr("HalfY", halfY()), in.getFloatOr("HalfZ", halfZ()));
-		this.kill = in.getBooleanOr("Kill", this.kill);
-		this.rate = Math.max(0f, in.getFloatOr("Rate", this.rate));
-		this.spread = Math.max(0f, in.getFloatOr("Spread", this.spread));
-		this.damage = Math.max(0f, in.getFloatOr("Damage", this.damage));
-		this.distance = Math.max(3f, in.getFloatOr("Distance", this.distance));
-		this.speed = Math.max(0.2f, in.getFloatOr("Speed", this.speed));
 	}
 }

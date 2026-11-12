@@ -4,7 +4,6 @@ import com.smeshariki.gameplay.barrage.Barrages;
 import com.smeshariki.gameplay.current.Currents;
 import com.smeshariki.gameplay.character.Characters;
 import com.smeshariki.gameplay.raft.Balloons;
-import com.smeshariki.gameplay.raft.LogRiver;
 import com.smeshariki.gameplay.raft.Rafts;
 import com.smeshariki.gameplay.slide.Slides;
 import com.smeshariki.gameplay.rope.Ropes;
@@ -21,7 +20,7 @@ public class GameplayMod implements ModInitializer {
 		Currents.init();
 		Characters.init();
 		Rafts.init();
-		LogRiver.init();
+		com.smeshariki.gameplay.raft.Logs.init();
 		Winds.init();
 		Balloons.init();
 		Slides.init();

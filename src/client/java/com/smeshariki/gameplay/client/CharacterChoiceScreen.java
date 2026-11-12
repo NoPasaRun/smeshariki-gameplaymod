@@ -6,18 +6,19 @@ import java.util.List;
 import com.smeshariki.gameplay.character.CharacterChoice;
 import com.smeshariki.gameplay.character.CharacterEntity;
 import com.smeshariki.gameplay.character.Possession;
+import com.smeshariki.ui.Ui;
+import com.smeshariki.ui.UiScreen;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.level.GameType;
 
 /** Выбор персонажа для вселения в режиме выживания. Закрыть без выбора нельзя; закрывается само, если выбирать больше не нужно. */
-final class CharacterChoiceScreen extends Screen {
+final class CharacterChoiceScreen extends UiScreen {
 	private static final int CARD_W = 80, CARD_H = 110, GAP = 8;
 
 	private final List<Integer> allowed;
@@ -61,11 +62,6 @@ final class CharacterChoiceScreen extends Screen {
 	}
 
 	@Override
-	public boolean isPauseScreen() {
-		return false;
-	}
-
-	@Override
 	public void tick() {
 		super.tick();
 		if (minecraft.player == null || minecraft.player.getVehicle() instanceof CharacterEntity || minecraft.gameMode.getPlayerMode() != GameType.SURVIVAL) onClose();
@@ -74,7 +70,7 @@ final class CharacterChoiceScreen extends Screen {
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float delta) {
 		super.extractRenderState(g, mouseX, mouseY, delta);
-		g.centeredText(font, title, width / 2, cardY() - 16, 0xFFFFFFFF);
+		g.centeredText(font, title, width / 2, cardY() - 16, Ui.TEXT);
 		for (int i = 0; i < previews.size(); i++) {
 			CharacterEntity character = previews.get(i);
 			if (character == null) continue;

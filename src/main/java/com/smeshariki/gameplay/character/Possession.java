@@ -46,6 +46,13 @@ public final class Possession {
 	private static AutoChoice autoChoice = player -> null;
 	/** Чей выбор ждёт загрузки смешарика из незагруженного чанка: не спрашивать снова. */
 	private static final Set<UUID> WAITING = new HashSet<>();
+	/** Дальше этого (блоков) игрока, перенесённого к смешарику, сажают не сразу: клиент ещё не знает ни чанка, ни смешарика. */
+	private static final double FAR = 48;
+	/** Игрок перенесён к далёкому смешарику и ждёт, пока клиент получит чанк и сущность; сажают его в {@link #tick}. */
+	private record Landing(ServerPlayer player, CharacterEntity body, long ready, long deadline) {
+	}
+
+	private static final List<Landing> LANDINGS = new ArrayList<>();
 
 	private Possession() {
 	}
@@ -85,7 +92,27 @@ public final class Possession {
 		return player.gameMode() == GameType.SURVIVAL && player.isAlive() && !CharacterEntity.isPossessing(player);
 	}
 
+	/** Сажает перенесённых издалека, когда клиент получил чанк со смешариком (и пара тиков на сам пакет); не дождались за 10 с — сажает всё равно. */
+	private static void land(MinecraftServer server) {
+		LANDINGS.removeIf(landing -> {
+			ServerPlayer player = landing.player();
+			CharacterEntity body = landing.body();
+			if (player.isRemoved() || !player.isAlive() || body.isRemoved() || body.isVehicle() && !body.hasPassenger(player)) {
+				WAITING.remove(player.getUUID());
+				return true;
+			}
+			long now = server.getTickCount();
+			if (now < landing.ready()) return false;
+			boolean seen = body.level() == player.level() && ((ServerLevel) body.level()).getChunkSource().chunkMap.isChunkTracked(player, body.chunkPosition().x(), body.chunkPosition().z());
+			if (!seen && now < landing.deadline()) return false;
+			WAITING.remove(player.getUUID());
+			if (!body.hasPassenger(player)) body.possess(player);
+			return true;
+		});
+	}
+
 	private static void tick(MinecraftServer server) {
+		land(server);
 		if (server.getTickCount() % ASK_INTERVAL != 0) return;
 		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			if (!needsCharacter(player) || WAITING.contains(player.getUUID())) continue;
@@ -137,7 +164,16 @@ public final class Possession {
 				if (body == null) return;
 			} else {
 				ServerLevel to = (ServerLevel) body.level();
+				boolean far = to != player.level() || player.position().distanceToSqr(body.position()) > FAR * FAR;
 				player.teleportTo(to, body.getX(), body.getY(), body.getZ(), Set.of(), body.getYRot(), player.getXRot(), true);
+				if (far) {
+					// посадка в тот же тик шлёт клиенту пассажиров сущности, которой он ещё не знает («Received passengers for unknown entity»): игрок не двигается,
+					// камера дёргается. Ждём, пока клиент получит чанк со смешариком
+					WAITING.add(player.getUUID());
+					long now = server.getTickCount();
+					LANDINGS.add(new Landing(player, body, now + 3, now + 200));
+					return;
+				}
 			}
 			body.possess(player);
 		});

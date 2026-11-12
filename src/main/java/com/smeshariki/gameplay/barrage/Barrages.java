@@ -51,8 +51,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * Стрелы, которые гонят игрока по маршруту: летят сбоку и сзади почти горизонтально. Обстрел ({@link BarrageEntity}) целит туда, где игрок сейчас и стреляет, только пока
- * игрок тормозит или уходит с курса ({@link #provoked}): бегущего по маршруту не трогает. Мёртвая зона ({@link DeadzoneEntity}) целит с упреждением. Считает только сервер. Каждый тик у каждого игрока выбирается один источник: зона,
- * в которой он стоит, иначе ближайший обстрел в пределах его радиуса. Игрок с маркером в руке не обстреливается: иначе нельзя настроить.
+ * игрок тормозит или уходит с курса ({@link #provoked}): бегущего по маршруту не трогает. Мёртвая зона ({@link DeadzoneEntity}) не стреляет, а убивает. Считает только сервер. Каждый тик у игрока действует ближайший обстрел в пределах его радиуса. Игрок с маркером в руке не обстреливается: иначе нельзя настроить.
  */
 public final class Barrages {
 	public static EntityType<BarrageEntity> BARRAGE;
@@ -148,15 +147,15 @@ public final class Barrages {
 		return player.getMainHandItem().getItem() instanceof FireMarkerItem;
 	}
 
-	/** Зоны гибели: живое в ящике гибнет (вселённого убивает его персонаж), брёвна реки исчезают. Креатив и наблюдатели не в счёт. */
+	/** Мёртвые зоны: живое в ящике гибнет (вселённого убивает его персонаж), брёвна реки исчезают. Креатив и наблюдатели не в счёт. */
 	private static void killInZones(ServerLevel level) {
 		for (DeadzoneEntity zone : DEADZONES) {
-			if (!zone.isKill() || zone.level() != level || zone.isRemoved()) continue;
+			if (zone.level() != level || zone.isRemoved()) continue;
 			var box = zone.box();
 			for (var log : level.getEntitiesOfClass(com.smeshariki.gameplay.raft.LogRaftEntity.class, box)) log.discard();
 			for (var living : level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, box, e -> e.isAlive() && !(e instanceof ServerPlayer))) living.kill(level);
 			for (ServerPlayer player : level.players()) {
-				if (!player.isAlive() || player.isSpectator() || player.isCreative() || !CharacterEntity.body(player).getBoundingBox().intersects(box)) continue;
+				if (!player.isAlive() || player.isSpectator() || player.isCreative() || !zone.contains(CharacterEntity.body(player).getBoundingBox())) continue;
 				// вселённого убивает его персонаж, и игроку выбирают нового; без персонажа гибнет сам игрок
 				if (player.getVehicle() instanceof CharacterEntity character) {
 					if (character.isAlive()) character.kill(level);
@@ -176,13 +175,7 @@ public final class Barrages {
 		List<ServerPlayer> targets = new ArrayList<>();
 		for (ServerPlayer player : players) if (isTarget(player)) targets.add(player);
 		if (targets.isEmpty()) return;
-		Map<DeadzoneEntity, List<ServerPlayer>> zones = new HashMap<>();
 		for (ServerPlayer player : targets) {
-			DeadzoneEntity zone = zoneOf(level, player);
-			if (zone != null) {
-				zones.computeIfAbsent(zone, z -> new ArrayList<>()).add(player);
-				continue;
-			}
 			BarrageEntity barrage = nearestBarrage(level, player);
 			if (barrage == null) {
 				SLOW.remove(player.getUUID());
@@ -191,7 +184,6 @@ public final class Barrages {
 			if (provoked(barrage, player)) fireRing(level, barrage, player, targets);
 		}
 		for (ServerPlayer player : players) if (!targets.contains(player)) SLOW.remove(player.getUUID());
-		zones.forEach((zone, inside) -> fireAimed(level, zone, inside));
 	}
 
 	/** В выживании без персонажа игрок выбирает нового в окне: иначе смерть персонажа стоила бы ему и своей жизни, а её быть не должно. */
@@ -221,12 +213,6 @@ public final class Barrages {
 		slow = along < barrage.minSpeed() ? Math.min(slow + 1, barrage.grace() + barrage.slowMargin()) : Math.max(0, slow - barrage.slowRecovery());
 		SLOW.put(player.getUUID(), slow);
 		return slow >= barrage.grace();
-	}
-
-	private static DeadzoneEntity zoneOf(ServerLevel level, ServerPlayer player) {
-		var box = CharacterEntity.body(player).getBoundingBox();
-		for (DeadzoneEntity zone : DEADZONES) if (zone.level() == level && !zone.isRemoved() && !zone.isKill() && fires(zone, player) && zone.contains(box)) return zone;
-		return null;
 	}
 
 	private static BarrageEntity nearestBarrage(ServerLevel level, ServerPlayer player) {
@@ -267,18 +253,6 @@ public final class Barrages {
 			if (Mth.lengthSquared(at.x - point.x, at.z - point.z) < safe * safe) return true;
 		}
 		return false;
-	}
-
-	private static void fireAimed(ServerLevel level, DeadzoneEntity zone, List<ServerPlayer> inside) {
-		int shots = zone.dueShots(inside.size());
-		RandomSource random = level.getRandom();
-		for (int i = 0; i < shots; i++) {
-			ServerPlayer player = inside.get(i % inside.size());
-			double angle = random.nextDouble() * Math.PI * 2;
-			Vec3 out = new Vec3(Math.cos(angle), 0, Math.sin(angle));
-			Vec3 lead = VELOCITY.getOrDefault(player.getUUID(), Vec3.ZERO).multiply(1, 0, 1).scale(zone.distance() / zone.speed());
-			shoot(level, center(player).add(lead).add(miss(random, zone.spread())), out, zone.distance(), zone.speed(), zone.damage());
-		}
 	}
 
 	/** Середина тела игрока или его персонажа. */

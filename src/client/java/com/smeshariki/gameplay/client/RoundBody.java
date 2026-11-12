@@ -12,6 +12,11 @@ final class RoundBody {
 	static final Voxels.Mesh MESH = Voxels.Mesh.ellipsoids(Voxels.PIXEL, 0.5f, new float[][] { { 0, 0, 0, R, R, R } });
 	static final Voxels.Paint FACE = Voxels.face(FACE_HALF);
 
+	/** Лицо для тела, смещённого от центра шара ({@code at} — центр тела в системе шара): координаты переводятся в систему шара. */
+	static Voxels.Paint shifted(float[] at) {
+		return (x, y, z, front, out) -> FACE.uv(x + at[0], y + at[1], z + at[2], true, out);
+	}
+
 	private RoundBody() {
 	}
 }

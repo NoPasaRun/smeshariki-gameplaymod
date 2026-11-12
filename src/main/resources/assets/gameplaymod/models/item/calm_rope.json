@@ -1,6 +1,6 @@
 {
 	"parent": "minecraft:item/generated",
 	"textures": {
-		"layer0": "gameplaymod:item/tarzan_rope"
+		"layer0": "gameplaymod:item/calm_rope"
 	}
 }

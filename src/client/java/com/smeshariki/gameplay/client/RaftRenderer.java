@@ -33,7 +33,7 @@ public final class RaftRenderer extends EntityRenderer<RaftEntity, RaftRenderer.
 	static void init() {
 		EntityRendererRegistry.register(Rafts.TYPE, RaftRenderer::new);
 		EntityRendererRegistry.register(com.smeshariki.gameplay.raft.Balloons.TYPE, RaftRenderer::new);
-		EntityRendererRegistry.register(com.smeshariki.gameplay.raft.LogRiver.TYPE, RaftRenderer::new);
+		EntityRendererRegistry.register(com.smeshariki.gameplay.raft.Logs.TYPE, RaftRenderer::new);
 		ClientPlayNetworking.registerGlobalReceiver(RaftBlocks.TYPE, (payload, ctx) -> {
 			ClientLevel level = Minecraft.getInstance().level;
 			RaftEntity e = level != null && level.getEntity(payload.entityId()) instanceof RaftEntity r ? r : null;

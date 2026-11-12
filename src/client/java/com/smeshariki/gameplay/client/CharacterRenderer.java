@@ -26,7 +26,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 
-/** Рисует персонажа-шарика по его модели (Крош, Ёжик): общее здесь — поворот, ходьба, удар, смерть и скрытие изнутри. */
+/** Рисует персонажа-шарика по его модели (Крош, Ёжик, Карыч, Лосяш, Нюша, Бараш, Совунья): общее здесь — поворот, ходьба, удар, смерть и скрытие изнутри. */
 public final class CharacterRenderer extends EntityRenderer<CharacterEntity, CharacterRenderer.State> {
 	private final CharacterModel model;
 	private final Identifier texture;
@@ -54,6 +54,9 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		EntityRendererRegistry.register(Characters.YOZHIK, ctx -> new CharacterRenderer(ctx, new YozhikModel(), "yozhik"));
 		EntityRendererRegistry.register(Characters.KARYCH, ctx -> new CharacterRenderer(ctx, new KarychModel(), "karych"));
 		EntityRendererRegistry.register(Characters.LOSYASH, ctx -> new CharacterRenderer(ctx, new LosyashModel(), "losyash"));
+		EntityRendererRegistry.register(Characters.NYUSHA, ctx -> new CharacterRenderer(ctx, new NyushaModel(), "nyusha"));
+		EntityRendererRegistry.register(Characters.BARASH, ctx -> new CharacterRenderer(ctx, new BarashModel(), "barash"));
+		EntityRendererRegistry.register(Characters.SOVUNYA, ctx -> new CharacterRenderer(ctx, new SovunyaModel(), "sovunya"));
 	}
 
 	public static final class State extends EntityRenderState {

@@ -1,0 +1,6 @@
+{
+	"parent": "minecraft:item/generated",
+	"textures": {
+		"layer0": "gameplaymod:item/sovunya_spawn_egg"
+	}
+}
