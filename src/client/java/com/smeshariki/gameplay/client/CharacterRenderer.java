@@ -61,6 +61,9 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 
 	public static final class State extends EntityRenderState {
 		float headYaw, bodyYaw, walkPos, walkSpeed, death, spread, slopeDrop;
+		/** Взмах рукой того, кто ведёт персонажа: ход 0..1 и рука (сторона модели: −1 — правая у персонажа). */
+		float attack;
+		int attackSide;
 		/** Лежит на скате: наклон туловища, иначе NaN. */
 		float lying = Float.NaN;
 		boolean hurt, hidden;
@@ -80,24 +83,61 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 	}
 
 	/**
-	 * Руки персонажа от первого лица, в системе камеры. Игрок внутри невидим, поэтому его руку ваниль не рисует; предмет она рисует сама,
-	 * и он оказывается в руке. Рисуем обе руки всегда: качаются при ходьбе, бьёт та, что и у игрока. В клубке рук нет.
+	 * Смещение руки от покоя при взмахе и смене предмета, как у ванильной руки: те же движения, что у руки игрока без предмета
+	 * ({@code item} = false) и у предмета в руке ({@code item} = true) в {@code ItemInHandRenderer}. Применяется поверх покоя: ставит руку туда,
+	 * где при этом оказалась бы ванильная, не меняя её места в покое.
+	 *
+	 * @param sign 1 — правая, −1 — левая; {@code attack} — ход взмаха 0..1; {@code equip} — насколько рука опущена при смене предмета 0..1
 	 */
-	public void submitHands(CharacterEntity entity, LocalPlayer player, float partialTick, PoseStack pose, SubmitNodeCollector collector, int light) {
+	static Matrix4f vanillaDelta(int sign, float attack, float equip, boolean item) {
+		Matrix4f now = vanillaArm(sign, attack, equip, item), rest = vanillaArm(sign, 0, 0, item);
+		return now.mul(rest.invert());
+	}
+
+	private static Matrix4f vanillaArm(int sign, float a, float equip, boolean item) {
+		float root = (float) Math.sqrt(a);
+		float pi = (float) Math.PI;
+		Matrix4f m = new Matrix4f();
+		if (!item) {
+			m.translate(sign * (-0.3f * Mth.sin(root * pi) + 0.64000005f), 0.4f * Mth.sin(root * 2 * pi) - 0.6f + equip * -0.6f, -0.4f * Mth.sin(a * pi) - 0.71999997f);
+			m.rotateY((float) Math.toRadians(sign * 45f));
+			m.rotateY((float) Math.toRadians(sign * Mth.sin(root * pi) * 70f));
+			m.rotateZ((float) Math.toRadians(sign * Mth.sin(a * a * pi) * -20f));
+			return m;
+		}
+		m.translate(sign * -0.4f * Mth.sin(root * pi), 0.2f * Mth.sin(root * 2 * pi), -0.2f * Mth.sin(a * pi));
+		m.translate(sign * 0.56f, -0.52f + equip * -0.6f, -0.72f);
+		m.rotateY((float) Math.toRadians(sign * (45f + Mth.sin(a * a * pi) * -20f)));
+		m.rotateZ((float) Math.toRadians(sign * Mth.sin(root * pi) * -20f));
+		m.rotateX((float) Math.toRadians(Mth.sin(root * pi) * -80f));
+		m.rotateY((float) Math.toRadians(sign * -45f));
+		return m;
+	}
+
+	/**
+	 * Руки персонажа от первого лица, в системе камеры. Игрок внутри невидим, поэтому его руку ваниль не рисует; предмет она рисует сама,
+	 * и он оказывается в руке. Рисуем обе руки всегда: качаются при ходьбе, а взмах и смена предмета идут так же, как у ванильной руки
+	 * ({@link #vanillaDelta}): бьёт та, что и у игрока, пустая рука — по дуге руки, рука с предметом — по дуге предмета. В клубке рук нет.
+	 *
+	 * @param mainEquip, offEquip насколько опущены основная и вторая рука при смене предмета (0 — в покое)
+	 */
+	public void submitHands(CharacterEntity entity, LocalPlayer player, float partialTick, PoseStack pose, SubmitNodeCollector collector, int light, float mainEquip, float offEquip) {
 		if (entity.isRolling()) return;
 		float walk = (float) Math.sin(entity.walkAnimation.position(partialTick) * 0.6662f) * Math.min(1f, entity.walkAnimation.speed(partialTick));
 		int mainSide = player.getMainArm() == HumanoidArm.RIGHT ? 1 : -1;
 		int hitSide = player.swingingArm == InteractionHand.OFF_HAND ? -mainSide : mainSide;
-		float hit = (float) Math.sin(Math.sqrt(player.getAttackAnim(partialTick)) * Math.PI);
+		float attack = player.getAttackAnim(partialTick);
 		float spread = Mth.lerp(partialTick, entity.spreadO, entity.spread);
 		int overlay = OverlayTexture.pack(OverlayTexture.u(0f), OverlayTexture.v(entity.hurtTime > 0));
 		for (int side : new int[] { -1, 1 }) {
-			float strike = side == hitSide ? hit : 0;
+			boolean main = side == mainSide;
+			boolean item = !(main ? player.getMainHandItem() : player.getOffhandItem()).isEmpty();
 			pose.pushPose();
-			pose.translate(side * (HAND_X + spread * 0.25f - strike * 0.12f), HAND_Y + strike * 0.14f - side * walk * 0.012f, HAND_Z + side * walk * 0.03f - strike * 0.28f);
+			pose.mulPose(vanillaDelta(side, side == hitSide ? attack : 0f, main ? mainEquip : offEquip, item));
+			pose.translate(side * (HAND_X + spread * 0.25f), HAND_Y - side * walk * 0.012f, HAND_Z + side * walk * 0.03f);
 			pose.mulPose(Axis.YP.rotationDegrees(side * HAND_IN));
 			pose.mulPose(Axis.ZP.rotationDegrees(side * spread * 55f));
-			pose.mulPose(Axis.XP.rotationDegrees(HAND_UP + strike * 20f));
+			pose.mulPose(Axis.XP.rotationDegrees(HAND_UP));
 			pose.scale(HAND_SCALE, HAND_SCALE, HAND_SCALE);
 			collector.submitCustomGeometry(pose, RenderTypes.entityCutout(this.texture), (p, c) -> this.model.renderHand(c, p, new Matrix4f(), light, overlay));
 			pose.popPose();
@@ -123,6 +163,13 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		// камера внутри чужого персонажа (игрок вошёл в него): его грани закрыли бы экран, поэтому его не рисуем, пока камера внутри
 		if (!state.hidden && !preview && mc.player != null && mc.player.getVehicle() != entity && entity.getBoundingBox().inflate(0.1).contains(mc.player.getEyePosition(partialTick))) state.hidden = true;
 		state.glasses = entity.hasGlasses();
+		state.attack = 0f;
+		if (!preview && entity.getFirstPassenger() instanceof net.minecraft.world.entity.player.Player rider) {
+			state.attack = rider.getAttackAnim(partialTick);
+			// основная рука игрока — правая у вселённого персонажа тоже; ось x модели смотрит влево от персонажа, поэтому правая — со знаком −
+			boolean right = (rider.getMainArm() == HumanoidArm.RIGHT) != (rider.swingingArm == InteractionHand.OFF_HAND);
+			state.attackSide = right ? -1 : 1;
+		}
 		state.pose = entity.getVisualPose() == null ? null : entity.getVisualPose().copy();
 		// превью в окне инвентаря: ванильная функция поворачивает только живые сущности, поэтому поворачиваем сами
 		if (preview) {
@@ -173,7 +220,9 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		collector.submitCustomGeometry(pose, RenderTypes.entityCutout(texture), (p, c) -> {
 			float swing = (float) Math.sin(state.walkPos * 0.6662f) * state.walkSpeed;
 			float sway = (float) Math.sin(state.ageInTicks * 0.1f) * 0.05f + swing * 0.15f;
+			Limbs.setAttack(state.attack, state.attackSide);
 			model.render(c, p, head, feet, swing, sway, state.spread, state.pose, light, overlay);
+			Limbs.setAttack(0f, 0);
 			if (state.glasses) GlassesModel.draw(c, p, head, model.centerY() + model.glassesY(), model.glassesY(), model.glassesPush(), light, overlay);
 		});
 		pose.popPose();

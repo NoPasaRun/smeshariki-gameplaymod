@@ -306,6 +306,18 @@ public class CharacterEntity extends PathfinderMob {
 		return toSource.lengthSqr() < 1e-6 || look.dot(toSource.normalize()) > 0.2;
 	}
 
+	/** Хитбокс урона: ширина и высота (блоки). По форме модели (круглое тело с ручками), шире и ниже хитбокса столкновений 0,6 × 1,8. */
+	private static final double HURT_WIDTH = 1.2, HURT_HEIGHT = 1.6;
+
+	/**
+	 * Где смешарика можно ударить (и куда попадёт стрела или прицел). Отдельно от {@link #getBoundingBox()}, который отвечает за столкновения, и не меняет их.
+	 * Используется лучом попадания ({@code ProjectileUtilMixin}).
+	 */
+	public net.minecraft.world.phys.AABB hurtBox() {
+		double half = HURT_WIDTH / 2;
+		return new net.minecraft.world.phys.AABB(getX() - half, getY(), getZ() - half, getX() + half, getY() + HURT_HEIGHT, getZ() + half);
+	}
+
 	/** Бьёт по очкам только удар по лицу ({@link #hitsFace}); сила износа — половина урона, не меньше единицы; когда они на пределе, разбиваются. */
 	@Override
 	public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {

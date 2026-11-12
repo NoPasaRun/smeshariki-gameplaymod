@@ -30,6 +30,7 @@ final class Limbs {
 	 * плечо (качание идёт вокруг него). {@code pose} (может быть null) добавляет поворот вокруг плеча.
 	 */
 	static Matrix4f arm(Matrix4f root, float bodyY, int side, float tiltDeg, float swing, float pivot, CharacterPose pose) {
+		if (side == attackSide && attack > 0f) swing -= raise(attack);
 		Quaternionf q = pose == null ? null : pose.get(side < 0 ? Part.ARM_RIGHT : Part.ARM_LEFT);
 		if (q != null && pose.absolute) {
 			tiltDeg = 0;
@@ -38,6 +39,24 @@ final class Limbs {
 		Matrix4f m = new Matrix4f(root).translate(side * ARM_X, bodyY - SHOULDER_BELOW + pivot, 0);
 		if (q != null) m.rotate(q);
 		return m.rotateX(swing).rotateZ((float) Math.toRadians(tiltDeg)).translate(0, -pivot, 0);
+	}
+
+	/** Взмах рукой (бьёт рука стороны {@code attackSide}, ход {@code attack} 0..1): ставится рендерером на время отрисовки одного персонажа, только в потоке отрисовки. */
+	private static float attack;
+	private static int attackSide;
+
+	static void setAttack(float progress, int side) {
+		attack = progress;
+		attackSide = side;
+	}
+
+	/** Насколько рука поднимается вперёд при взмахе (радианы): как у ванильной руки при ударе. */
+	private static float raise(float progress) {
+		float f = 1f - progress;
+		f *= f;
+		f *= f;
+		f = 1f - f;
+		return (float) (Math.sin(f * Math.PI) * 1.2 + Math.sin(progress * Math.PI) * 0.525);
 	}
 
 	/** Высота бедра (оси вращения ноги) — у основания тела. */

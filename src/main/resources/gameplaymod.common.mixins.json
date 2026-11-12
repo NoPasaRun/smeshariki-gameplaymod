@@ -14,6 +14,7 @@
 		"LivingEntitySlopeMixin",
 		"LivingEntityVineMixin",
 		"PlayerMixin",
+		"ProjectileUtilMixin",
 		"ServerGamePacketListenerImplMixin"
 	],
 	"injectors": {
