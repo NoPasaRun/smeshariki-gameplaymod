@@ -3,6 +3,7 @@ package com.smeshariki.gameplay.raft;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 import com.smeshariki.gameplay.rope.RopeEntity;
@@ -116,23 +117,57 @@ public final class BalloonSnapshots {
 		final CompoundTag snapshot;
 		final java.util.List<long[]> forced = new ArrayList<>();
 		int wait = 3, attempts;
+		/** Верёвки: ставятся в последнюю очередь, когда всё остальное уже на месте и блоки области вернулись ({@link #setRestoreGate}). */
+		final boolean late;
+		int waited;
 
-		Pending(ServerLevel level, CompoundTag snapshot) {
+		Pending(ServerLevel level, CompoundTag snapshot, boolean late) {
 			this.level = level;
 			this.snapshot = snapshot;
+			this.late = late;
 		}
 	}
 
 	private static final List<Pending> PENDING = new ArrayList<>();
+	/** Дольше этого верёвки не ждут возврата блоков, тиков (страховка: ворота не должны держать их вечно). */
+	private static final int LATE_LIMIT = 1200;
+	private static BooleanSupplier restoreGate = () -> false;
+
+	/** Ворота возврата: пока они вернут true (идёт возврат блоков мира), верёвки из снимка не ставятся: им нужны блоки, на которых они держатся. */
+	public static void setRestoreGate(BooleanSupplier busy) {
+		restoreGate = busy;
+	}
+
+	/** Верёвка ли это (тарзанка, спокойная, тянущая): такие ставятся последними. */
+	private static boolean isRope(CompoundTag tag) {
+		String id = tag.getStringOr("id", "");
+		return id.equals("gameplaymod:tarzan_rope") || id.equals("gameplaymod:calm_rope") || id.equals("gameplaymod:pull_rope");
+	}
 	private static boolean registered;
 
-	/** Возвращает шары и их верёвки к снимку: нынешние (и все верёвки на них, даже повешенные позже) удаляются. Сами сущности ставятся через несколько тиков, когда чанки снимка обрабатываются. */
+	/**
+	 * Возвращает шары и их верёвки к снимку: нынешние (и все верёвки на них, даже повешенные позже) удаляются. Сами сущности ставятся через несколько тиков, когда чанки снимка обрабатываются.
+	 * Верёвки (висящие на шарах и на блоках) ставятся в последнюю очередь: после остальных сущностей и после возврата блоков (ворота {@link #setRestoreGate}).
+	 */
 	public static void restore(ServerLevel level, CompoundTag snapshot) {
 		if (!registered) {
 			registered = true;
 			net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(BalloonSnapshots::tick);
 		}
-		Pending pending = new Pending(level, snapshot);
+		CompoundTag main = new CompoundTag(), late = new CompoundTag();
+		main.put("Balloons", snapshot.getListOrEmpty("Balloons").copy());
+		ListTag mainEntities = new ListTag(), lateEntities = new ListTag(), lateRopes = new ListTag();
+		for (Tag tag : snapshot.getListOrEmpty("Entities")) (tag instanceof CompoundTag c && isRope(c) ? lateEntities : mainEntities).add(tag.copy());
+		for (Tag tag : snapshot.getListOrEmpty("Ropes")) lateRopes.add(tag.copy());
+		main.put("Entities", mainEntities);
+		late.put("Entities", lateEntities);
+		late.put("Ropes", lateRopes);
+		queue(level, main, false);
+		if (!lateEntities.isEmpty() || !lateRopes.isEmpty()) queue(level, late, true);
+	}
+
+	private static void queue(ServerLevel level, CompoundTag snapshot, boolean late) {
+		Pending pending = new Pending(level, snapshot, late);
 		java.util.Set<Long> chunks = new java.util.HashSet<>();
 		for (String key : new String[] {"Balloons", "Ropes", "Entities"}) {
 			for (Tag tag : snapshot.getListOrEmpty(key)) {
@@ -151,6 +186,15 @@ public final class BalloonSnapshots {
 		for (java.util.Iterator<Pending> it = PENDING.iterator(); it.hasNext();) {
 			Pending p = it.next();
 			if (--p.wait > 0) continue;
+			if (p.late && p.waited++ < LATE_LIMIT) {
+				// верёвки — после остальных сущностей и когда блоки области вернулись
+				boolean othersPending = false;
+				for (Pending other : PENDING) if (!other.late) othersPending = true;
+				if (othersPending || restoreGate.getAsBoolean()) {
+					p.wait = 1;
+					continue;
+				}
+			}
 			int failed = place(p.level, p.snapshot);
 			if (failed > 0 && ++p.attempts < 6) {
 				p.wait = 5;
