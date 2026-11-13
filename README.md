@@ -20,7 +20,7 @@
 ./gradlew jar --no-daemon -Dorg.gradle.jvmargs=-Xmx900m
 ```
 
-Результат — `build/libs/gameplaymod-1.0.0.jar`. Моды компилируются против соседних jar в `../<Мод>/build/libs/`, порядок сборки: UiLib → GameplayMod, ManagementMod → WorldMod → BehaviorMod, BuildMod → LevelMod.
+Результат — `build/libs/gameplaymod-1.0.0.jar`. Моды компилируются против соседних jar в `../<Мод>/build/libs/`, порядок сборки: SmesharikiMod → GameplayMod → WorldMod → BehaviorMod, BuildMod → LevelMod.
 
 ## Лицензия
 

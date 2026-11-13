@@ -1,6 +1,6 @@
 # GameplayMod
 
-Игровые механики для Minecraft 26.2, Java 25, Fabric (Loom): плавающие брёвна, тарзанки и другое. Id мода и пространство имён — `gameplaymod`, пакет `com.smeshariki.gameplay`. Зависит от `uilib` (общий интерфейс окон, `../UiLib/CLAUDE.md`; сейчас им пользуется только `CharacterChoiceScreen`): собирать UiLib первым. Миры не содержит (они в SmesharikiWorldMod), строительные блоки — в BuildMod; дубли регистраций с ними не создавать.
+Игровые механики для Minecraft 26.2, Java 25, Fabric (Loom): плавающие брёвна, тарзанки и другое. Id мода и пространство имён — `gameplaymod`, пакет `com.smeshariki.gameplay`. Зависит от `smesharikimod` (в нём общий интерфейс окон `com.smeshariki.ui`, см. `../SmesharikiMod/CLAUDE.md`; сейчас им пользуется только `CharacterChoiceScreen`): собирать SmesharikiMod первым. Миры не содержит (они в SmesharikiWorldMod), строительные блоки — в BuildMod; дубли регистраций с ними не создавать.
 
 ## Правила работы
 
