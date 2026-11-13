@@ -47,9 +47,17 @@ public final class LavaWaves {
 			w.requestLaunch();
 			n++;
 		}
-		if (n == 0) PENDING.put(group, server.getTickCount() + PENDING_TICKS);
+		if (n == 0) {
+			com.mojang.logging.LogUtils.getLogger().warn("Волна лавы «{}»: маркеров группы нет, заказ ждёт загрузки маркера до {} тиков", group, PENDING_TICKS);
+			PENDING.put(group, server.getTickCount() + PENDING_TICKS);
+		}
 		else PENDING.remove(group);
 		return n;
+	}
+
+	/** Заказ волны группы, ждущий маркера, отменяется (возврат снимка, сброс миссии). */
+	public static void cancelPending(String group) {
+		if (!group.isEmpty()) PENDING.remove(group);
 	}
 
 	/** Маркер загрузился: если его группе заказана волна, а маркеров не было, пускаем. */
@@ -79,7 +87,7 @@ public final class LavaWaves {
 		});
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(server -> PENDING.clear());
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
-			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.remove(w);
+			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.removeIf(x -> x == w);
 		});
 		ResourceKey<Item> itemKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "lava_wave_marker"));
 		ITEM = Registry.register(BuiltInRegistries.ITEM, itemKey, new FireMarkerItem(new Item.Properties().setId(itemKey), level -> new LavaWaveEntity(TYPE, level)));

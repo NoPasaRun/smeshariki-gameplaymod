@@ -493,6 +493,32 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		this.launchRequested = in.getBooleanOr("Launch", this.launchRequested);
 		// прерванная сохранением волна не продолжается, а начинается заново (Launch)
 		if (!level().isClientSide()) this.entityData.set(START, -1);
+		// снимок уровня (чекпоинт): волна продолжается с того же места, а не начинается заново (см. progress)
+		int elapsed = in.getIntOr("ResumeElapsed", Integer.MIN_VALUE);
+		if (elapsed != Integer.MIN_VALUE && !level().isClientSide()) {
+			this.launchRequested = in.getBooleanOr("ResumeLaunch", false);
+			this.finishPending = in.getBooleanOr("ResumeFinish", false);
+			this.crashed = in.getBooleanOr("ResumeCrashed", false);
+			if (elapsed >= 0) {
+				this.entityData.set(BASE, in.getIntOr("ResumeBase", base()));
+				this.entityData.set(START, (int) level().getGameTime() - elapsed);
+			}
+		}
+	}
+
+	/**
+	 * Ход волны для снимка уровня: сколько тиков идёт (−1 — не идёт), от какой лавы начата, обрушилась ли, ждёт ли сообщения о конце и заказанный запуск.
+	 * В обычное сохранение мира это не пишется (там прерванная волна начинается заново): только в снимок чекпоинта, чтобы возврат вернул волну в то же место.
+	 */
+	public net.minecraft.nbt.CompoundTag progress() {
+		net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+		double t = waveTime(0);
+		tag.putInt("ResumeElapsed", running(t) ? (int) t : -1);
+		tag.putInt("ResumeBase", base());
+		tag.putBoolean("ResumeCrashed", this.crashed);
+		tag.putBoolean("ResumeFinish", this.finishPending);
+		tag.putBoolean("ResumeLaunch", this.launchRequested);
+		return tag;
 	}
 
 	/** Волна никого не толкает и не задевается ничем, кроме прицела с маркером. */

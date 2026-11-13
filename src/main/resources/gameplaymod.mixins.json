@@ -8,6 +8,7 @@
 		"AvatarRendererSlopeMixin",
 		"AvatarRenderStateSlopeMixin",
 		"CameraMixin",
+		"ClientLevelSlowMixin",
 		"GameRendererMixin",
 		"ItemInHandRendererMixin",
 		"KeyboardHandlerMixin",

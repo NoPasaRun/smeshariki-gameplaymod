@@ -100,6 +100,17 @@ public class CharacterEntity extends PathfinderMob {
 		}
 	};
 
+	/** Мана Бараша (0..1): тратится вся сразу на замедление времени, пока оно идёт — показывает остаток; восстанавливается сама. Считает сервер. */
+	private static final EntityDataAccessor<Float> MANA = SynchedEntityData.defineId(CharacterEntity.class, EntityDataSerializers.FLOAT);
+
+	public float mana() {
+		return this.entityData.get(MANA);
+	}
+
+	public void setMana(float value) {
+		this.entityData.set(MANA, Mth.clamp(value, 0f, 1f));
+	}
+
 	/** Особенность включена: Ёжик катится, Карыч планирует. */
 	private static final EntityDataAccessor<Boolean> ABILITY = SynchedEntityData.defineId(CharacterEntity.class, EntityDataSerializers.BOOLEAN);
 
@@ -165,6 +176,7 @@ public class CharacterEntity extends PathfinderMob {
 	protected void defineSynchedData(SynchedEntityData.Builder builder) {
 		super.defineSynchedData(builder);
 		builder.define(ABILITY, false);
+		builder.define(MANA, 1f);
 		for (EntityDataAccessor<ItemStack> data : GEAR_DATA) builder.define(data, ItemStack.EMPTY);
 	}
 
@@ -185,12 +197,17 @@ public class CharacterEntity extends PathfinderMob {
 
 	/** Любимая еда: единственное, что восстанавливает здоровье (само оно не восстанавливается). */
 	public Item favoriteFood() {
-		if (getType() == Characters.YOZHIK) return Items.APPLE;
-		if (getType() == Characters.KROSH) return Items.CARROT;
-		if (getType() == Characters.LOSYASH) return Items.BREAD;
-		if (getType() == Characters.NYUSHA) return Items.COOKIE;
-		if (getType() == Characters.BARASH) return Items.SWEET_BERRIES;
-		if (getType() == Characters.SOVUNYA) return Items.BEETROOT;
+		return favoriteOf(getType());
+	}
+
+	/** Любимая еда персонажа данного типа. */
+	public static Item favoriteOf(EntityType<?> type) {
+		if (type == Characters.YOZHIK) return Items.APPLE;
+		if (type == Characters.KROSH) return Items.CARROT;
+		if (type == Characters.LOSYASH) return Items.BREAD;
+		if (type == Characters.NYUSHA) return Items.COOKIE;
+		if (type == Characters.BARASH) return Items.SWEET_BERRIES;
+		if (type == Characters.SOVUNYA) return Items.BEETROOT;
 		return Items.PUMPKIN_PIE;
 	}
 
@@ -213,6 +230,7 @@ public class CharacterEntity extends PathfinderMob {
 				if (getHealth() < getMaxHealth()) eatFavorite();
 			}
 		}
+		if (!level().isClientSide() && getType() == Characters.BARASH && mana() < 1f && !TimeSlow.isOwner(this)) setMana(mana() + TimeSlow.MANA_REGEN);
 		if (level().isClientSide()) updateAbilityAnimation();
 		// персонажи, призванные до того, как сердец стало 10, подтягиваются до нового максимума
 		else if (this.tickCount == 1 && getAttributeBaseValue(Attributes.MAX_HEALTH) < MAX_HEALTH) getAttribute(Attributes.MAX_HEALTH).setBaseValue(MAX_HEALTH);

@@ -47,7 +47,7 @@ public final class RaftRenderer extends EntityRenderer<RaftEntity, RaftRenderer.
 			if (pending != null) apply(r, pending);
 		});
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
-			if (entity instanceof RaftEntity r) RaftEntity.ALL.remove(r);
+			if (entity instanceof RaftEntity r) RaftEntity.ALL.removeIf(x -> x == r);
 		});
 		net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> PENDING.clear());
 	}

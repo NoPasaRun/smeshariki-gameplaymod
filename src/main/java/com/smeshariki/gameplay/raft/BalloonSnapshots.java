@@ -113,6 +113,8 @@ public final class BalloonSnapshots {
 	}
 
 	private static CompoundTag save(ServerLevel level, Entity entity) {
+		// маркер волны лавы: вместе с ходом волны, иначе возврат запускал бы её заново
+		if (entity instanceof com.smeshariki.gameplay.lava.LavaWaveEntity wave) return com.smeshariki.gameplay.lava.LavaSnapshots.markerTag(level, wave);
 		TagValueOutput out = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, level.registryAccess());
 		if (!entity.save(out)) return null;
 		CompoundTag tag = out.buildResult();

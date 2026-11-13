@@ -3,7 +3,8 @@
 	"category": "equipment",
 	"ingredients": [
 		"minecraft:lead",
-		"minecraft:stick"
+		"minecraft:stick",
+		"gameplaymod:scheme_balloon_helm_rope"
 	],
 	"result": {
 		"id": "gameplaymod:balloon_helm_rope",

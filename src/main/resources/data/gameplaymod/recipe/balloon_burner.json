@@ -4,7 +4,8 @@
 	"ingredients": [
 		"minecraft:iron_ingot",
 		"minecraft:flint_and_steel",
-		"minecraft:string"
+		"minecraft:string",
+		"gameplaymod:scheme_balloon_burner"
 	],
 	"result": {
 		"id": "gameplaymod:balloon_burner",

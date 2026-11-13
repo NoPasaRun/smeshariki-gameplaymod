@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:paper",
+		"minecraft:coal",
+		"gameplaymod:scheme_smoke_marker"
+	],
+	"result": {
+		"id": "gameplaymod:smoke_marker",
+		"count": 2
+	}
+}

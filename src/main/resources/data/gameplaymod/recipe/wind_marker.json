@@ -3,7 +3,8 @@
 	"category": "equipment",
 	"ingredients": [
 		"minecraft:paper",
-		"minecraft:white_dye"
+		"minecraft:white_dye",
+		"gameplaymod:scheme_wind_marker"
 	],
 	"result": {
 		"id": "gameplaymod:wind_marker",

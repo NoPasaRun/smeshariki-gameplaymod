@@ -3,7 +3,8 @@
 	"category": "equipment",
 	"ingredients": [
 		"minecraft:lead",
-		"minecraft:feather"
+		"minecraft:feather",
+		"gameplaymod:scheme_balloon_lift_rope"
 	],
 	"result": {
 		"id": "gameplaymod:balloon_lift_rope",

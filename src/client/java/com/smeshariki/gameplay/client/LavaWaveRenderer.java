@@ -57,7 +57,7 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.add(w);
 		});
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
-			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.remove(w);
+			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.removeIf(x -> x == w);
 		});
 	}
 

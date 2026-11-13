@@ -1,0 +1,14 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:paper",
+		"minecraft:slime_ball",
+		"minecraft:gunpowder",
+		"gameplaymod:scheme_launcher_marker"
+	],
+	"result": {
+		"id": "gameplaymod:launcher_marker",
+		"count": 2
+	}
+}

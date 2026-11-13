@@ -110,6 +110,7 @@ public final class Characters {
 		CreativeModeTabEvents.modifyOutputEvent(ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("tools_and_utilities"))).register(output -> output.accept(GLASSES));
 		GEAR_MENU = Registry.register(BuiltInRegistries.MENU, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "character_gear"), new MenuType<>(CharacterMenu::new, FeatureFlags.VANILLA_SET));
 		Singletons.init();
+		Skills.init();
 		Possession.init();
 		PayloadTypeRegistry.serverboundPlay().register(OpenCharacterGear.TYPE, OpenCharacterGear.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(OpenCharacterGear.TYPE, (msg, ctx) -> {

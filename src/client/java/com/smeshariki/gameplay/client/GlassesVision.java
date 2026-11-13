@@ -57,11 +57,18 @@ public final class GlassesVision {
 	/** Полоса стамины видна, пока персонаж в воде или стамина не полная. */
 	private static boolean staminaShown() {
 		CharacterEntity c = character(Minecraft.getInstance());
-		return c != null && (c.isInWater() || c.stamina() < 1f);
+		return c != null && (c.isInWater() || c.stamina() < 1f || manaShown(c));
 	}
 
 	/** Цвет стамины (по просьбе 2026-11-05 — голубая): заливка, светлая верхняя кромка, тёмная нижняя. */
 	private static final int STAMINA_FILL = 0xFF3FA9F5, STAMINA_LIGHT = 0xFF9ADCFF, STAMINA_DARK = 0xFF1F6FB0;
+	/** Мана Бараша на месте полосы стамины: сиреневая. */
+	private static final int MANA_FILL = 0xFFB36BE8, MANA_LIGHT = 0xFFDDB8FF, MANA_DARK = 0xFF7A3FB0;
+
+	/** Бараш с неполной маной (или идёт замедление): полоса показывает ману вместо стамины. */
+	private static boolean manaShown(CharacterEntity c) {
+		return c.getType() == Characters.BARASH && c.mana() < 1f;
+	}
 
 	/** Стамина вселённого персонажа на месте полосы опыта (182×5 над панелью быстрого доступа): подложка ванильная, заливка голубая. Нарисовала — true. */
 	private static boolean extractStamina(GuiGraphicsExtractor g) {
@@ -69,12 +76,14 @@ public final class GlassesVision {
 		CharacterEntity c = character(Minecraft.getInstance());
 		int x = g.guiWidth() / 2 - 91, y = g.guiHeight() - 29;
 		g.blitSprite(RenderPipelines.GUI_TEXTURED, BAR_BACKGROUND, x, y, 182, 5);
-		int filled = Math.min(182, (int) (c.stamina() * 183f));
+		boolean mana = manaShown(c);
+		int filled = Math.min(182, (int) ((mana ? c.mana() : c.stamina()) * 183f));
+		int fill = mana ? MANA_FILL : STAMINA_FILL, light = mana ? MANA_LIGHT : STAMINA_LIGHT, dark = mana ? MANA_DARK : STAMINA_DARK;
 		// у ванильного спрайта заливки свой зелёный цвет, подкраской голубой из него не получить: заливка рисуется сама, внутри рамки подложки
 		if (filled > 2) {
-			g.fill(x + 1, y + 1, x + filled - 1, y + 4, STAMINA_FILL);
-			g.fill(x + 1, y + 1, x + filled - 1, y + 2, STAMINA_LIGHT);
-			g.fill(x + 1, y + 3, x + filled - 1, y + 4, STAMINA_DARK);
+			g.fill(x + 1, y + 1, x + filled - 1, y + 4, fill);
+			g.fill(x + 1, y + 1, x + filled - 1, y + 2, light);
+			g.fill(x + 1, y + 3, x + filled - 1, y + 4, dark);
 		}
 		return true;
 	}

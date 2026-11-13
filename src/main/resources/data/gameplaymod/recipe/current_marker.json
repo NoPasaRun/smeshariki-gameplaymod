@@ -1,6 +1,13 @@
 {
 	"type": "minecraft:crafting_shapeless",
 	"category": "equipment",
-	"ingredients": ["minecraft:paper", "minecraft:blue_dye"],
-	"result": { "id": "gameplaymod:current_marker", "count": 2 }
+	"ingredients": [
+		"minecraft:paper",
+		"minecraft:blue_dye",
+		"gameplaymod:scheme_current_marker"
+	],
+	"result": {
+		"id": "gameplaymod:current_marker",
+		"count": 2
+	}
 }

@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"gameplaymod:tarzan_rope",
+		"minecraft:slime_ball",
+		"gameplaymod:scheme_calm_rope"
+	],
+	"result": {
+		"id": "gameplaymod:calm_rope",
+		"count": 1
+	}
+}

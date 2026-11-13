@@ -82,7 +82,7 @@ public final class Rafts {
 			if (entity instanceof RaftEntity r) RaftEntity.ALL.add(r);
 		});
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
-			if (entity instanceof RaftEntity r) RaftEntity.ALL.remove(r);
+			if (entity instanceof RaftEntity r) RaftEntity.ALL.removeIf(x -> x == r);
 		});
 		PayloadTypeRegistry.clientboundPlay().register(RaftBlocks.TYPE, RaftBlocks.CODEC);
 		EntityTrackingEvents.START_TRACKING.register((entity, player) -> {

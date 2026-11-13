@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:lead",
+		"minecraft:string",
+		"gameplaymod:scheme_pull_rope"
+	],
+	"result": {
+		"id": "gameplaymod:pull_rope",
+		"count": 1
+	}
+}

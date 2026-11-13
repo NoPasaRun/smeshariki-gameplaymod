@@ -36,6 +36,8 @@ public class GameplayModClient implements ClientModInitializer {
 	private static final KeyMapping ROPE_SHORTER = key("rope_shorter", GLFW.GLFW_KEY_LEFT_BRACKET);
 	/** Переключает ось колеса у стропы руля: вперёд-назад или вправо-влево. Клавишу можно делить со списком игроков. */
 	static final KeyMapping BALLOON_AXIS = key("balloon_axis", GLFW.GLFW_KEY_TAB);
+	/** Умение вселённого персонажа: Совунья готовит еду, Лосяш рисует схему, Бараш замедляет время, Нюша зовёт смешарика. */
+	private static final KeyMapping SKILL = key("skill", GLFW.GLFW_KEY_G);
 	/** Блоков за тик, пока клавиша зажата. */
 	private static final float STEP = 0.15f;
 
@@ -182,6 +184,7 @@ public class GameplayModClient implements ClientModInitializer {
 		com.smeshariki.gameplay.barrage.Barrages.holdsMarkerOnClient = FireMarkerRenderer::holdsMarker;
 		BalloonRopesClient.init();
 		GlassesVision.init();
+		SkillClient.init();
 		MenuScreens.register(Characters.GEAR_MENU, CharacterGearScreen::new);
 		ClientPlayNetworking.registerGlobalReceiver(ChooseCharacter.TYPE, (msg, ctx) -> {
 			Minecraft mc = ctx.client();
@@ -220,6 +223,7 @@ public class GameplayModClient implements ClientModInitializer {
 			relayRope(mc);
 			relayJump(mc);
 			relayAbility(mc);
+			SkillClient.tick(mc, SKILL);
 			if (mc.gui.screen() != null) return;
 			float delta = (ROPE_LONGER.isDown() ? STEP : 0) - (ROPE_SHORTER.isDown() ? STEP : 0);
 			if (delta != 0 && RopeEntity.heldBy(mc.player) != null) ClientPlayNetworking.send(new AdjustLength(delta));
