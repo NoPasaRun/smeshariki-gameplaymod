@@ -55,6 +55,20 @@ public final class LavaWaves {
 		return n;
 	}
 
+	/**
+	 * Отпустить волны, которые вернул снимок уровня посреди хода и придержал до конца ожидания после сброса; {@code group} пусто — все. Волна идёт с места снимка.
+	 * Возвращает, сколько отпущено.
+	 */
+	public static int release(MinecraftServer server, String group) {
+		int n = 0;
+		for (LavaWaveEntity w : LavaWaveEntity.ALL) {
+			if (w.level().isClientSide() || w.isRemoved() || w.level().getServer() != server || !w.isHeld() || !group.isEmpty() && !group.equals(w.group())) continue;
+			w.release((net.minecraft.server.level.ServerLevel) w.level());
+			n++;
+		}
+		return n;
+	}
+
 	/** Заказ волны группы, ждущий маркера, отменяется (возврат снимка, сброс миссии). */
 	public static void cancelPending(String group) {
 		if (!group.isEmpty()) PENDING.remove(group);

@@ -145,6 +145,12 @@ public final class GameplayMechanics {
 			public void restore(ServerLevel level, CompoundTag snapshot) {
 				com.smeshariki.gameplay.lava.LavaSnapshots.restore(level, snapshot);
 			}
+
+			@Override
+			public void resume(MinecraftServer server) {
+				// волны, вернувшиеся из снимка посреди хода, идут с места снимка
+				com.smeshariki.gameplay.lava.LavaWaves.release(server, "");
+			}
 		});
 		Mechanics.describeEvent(Balloons.EVENT_STRANDED, "группа шара");
 		Mechanics.describeEvent(Balloons.EVENT_LIFTED, "группа шара");

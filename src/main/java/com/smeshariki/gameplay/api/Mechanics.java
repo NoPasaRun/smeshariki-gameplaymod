@@ -94,6 +94,13 @@ public final class Mechanics {
 		CompoundTag take(ServerLevel level, Area area);
 
 		void restore(ServerLevel level, CompoundTag snapshot);
+
+		/**
+		 * Возврат снимка закончился и игрок отстоял ожидание после сброса: можно продолжать то, что возврат придержал (волна лавы, вернувшаяся посреди хода, идёт с
+		 * места снимка не сразу, а когда игрок снова может двигаться). По умолчанию ничего.
+		 */
+		default void resume(MinecraftServer server) {
+		}
 	}
 
 	/** Проверка состояния игрока (или мира вокруг него). Регистрировать может любой мод, в том числе сам управляющий. */

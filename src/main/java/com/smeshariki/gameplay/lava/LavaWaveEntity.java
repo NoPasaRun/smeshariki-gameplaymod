@@ -78,6 +78,15 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	private boolean launchRequested;
 	/** Волна пошла, а о её конце ещё не сообщили. */
 	private boolean finishPending;
+	/**
+	 * Волна возвращена из снимка уровня посреди хода и ждёт, пока игрок отстоит ожидание после сброса ({@link #release}): пока ждёт, не идёт, не сообщает о конце и
+	 * не запускает другую. В сохранение мира не пишется. {@code heldElapsed} — сколько тиков волна уже шла (−1 — не шла), {@code heldSince} — когда её придержали.
+	 */
+	private boolean held;
+	private int heldElapsed = -1;
+	private long heldSince;
+	/** Придержанная волна сама отпускается через столько тиков, если уровень её не отпустил: волна не должна зависнуть навсегда. */
+	private static final int HOLD_LIMIT = 1200;
 	private final LavaLayer layer = new LavaLayer();
 	/** Сколько слоёв поднимает одно обрушение ({@code Rise}, 1–8) и сколько ещё залить после текущего. */
 	private int rise = 1, riseLeft = 0;
@@ -314,6 +323,10 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	}
 
 	private void serverTick(ServerLevel level) {
+		if (this.held) {
+			if (level.getGameTime() - this.heldSince > HOLD_LIMIT) release(level);
+			return;
+		}
 		if (this.layer.busy()) this.layer.pour(level);
 		// обрушение поднимает несколько слоёв: следующий, когда залит предыдущий
 		if (!this.layer.busy() && this.riseLeft > 0) {
@@ -418,6 +431,19 @@ public class LavaWaveEntity extends FireMarkerEntity {
 
 	// ---------------------------------------------------------------- маркер
 
+	/** Придержана ли волна после возврата из снимка. */
+	public boolean isHeld() {
+		return this.held;
+	}
+
+	/** Отпустить придержанную волну: она идёт с того места, где была в снимке. */
+	public void release(ServerLevel level) {
+		if (!this.held) return;
+		this.held = false;
+		if (this.heldElapsed >= 0) this.entityData.set(START, (int) level.getGameTime() - this.heldElapsed);
+		this.heldElapsed = -1;
+	}
+
 	/** Заказать волну: пойдёт, как только кончится идущая и зальётся слой. Повторный заказ до её начала ничего не добавляет. */
 	public void requestLaunch() {
 		this.launchRequested = true;
@@ -499,9 +525,12 @@ public class LavaWaveEntity extends FireMarkerEntity {
 			this.launchRequested = in.getBooleanOr("ResumeLaunch", false);
 			this.finishPending = in.getBooleanOr("ResumeFinish", false);
 			this.crashed = in.getBooleanOr("ResumeCrashed", false);
-			if (elapsed >= 0) {
-				this.entityData.set(BASE, in.getIntOr("ResumeBase", base()));
-				this.entityData.set(START, (int) level().getGameTime() - elapsed);
+			if (elapsed >= 0) this.entityData.set(BASE, in.getIntOr("ResumeBase", base()));
+			// ход не продолжается сразу: игрок после сброса ещё стоит на ожидании, волна идёт после него (release)
+			if (elapsed >= 0 || this.launchRequested || this.finishPending) {
+				this.held = true;
+				this.heldElapsed = elapsed;
+				this.heldSince = level().getGameTime();
 			}
 		}
 	}
