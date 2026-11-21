@@ -28,7 +28,7 @@ import net.minecraft.world.phys.Vec3;
  * плоскости XZ и повёрнутая по течению.
  */
 public final class CurrentMarkerRenderer extends EntityRenderer<CurrentMarkerEntity, CurrentMarkerRenderer.State> {
-	private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/item/current_marker.png");
+	private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/entity/current_marker_arrow.png");
 	/** Половина стороны картинки, блоков. */
 	private static final float HALF = 0.4f;
 	private static final Identifier FLOW_TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/entity/current.png");

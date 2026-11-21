@@ -28,6 +28,7 @@ public class GameplayMod implements ModInitializer {
 		Barrages.init();
 		com.smeshariki.gameplay.launcher.Launchers.init();
 		com.smeshariki.gameplay.smoke.Smokes.init();
+		com.smeshariki.gameplay.ball.Balls.init();
 		com.smeshariki.gameplay.lava.LavaTides.init();
 		com.smeshariki.gameplay.lava.LavaWaves.init();
 		com.smeshariki.gameplay.character.AutorunControl.init();

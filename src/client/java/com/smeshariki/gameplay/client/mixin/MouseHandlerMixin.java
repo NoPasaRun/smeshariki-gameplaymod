@@ -17,7 +17,7 @@ public class MouseHandlerMixin {
 	/** Пока игрок держит стропу шара, колесо управляет шаром, а не панелью предметов. */
 	@Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
 	private void gameplaymod$balloonRope(long window, double x, double y, CallbackInfo ci) {
-		if (GameplayModClient.scrollBalloonRope(y)) ci.cancel();
+		if (com.smeshariki.gameplay.client.BallKickClient.scroll(y) || GameplayModClient.scrollBalloonRope(y)) ci.cancel();
 	}
 
 	@Redirect(method = "turnPlayer", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/LocalPlayer;turn(DD)V"))

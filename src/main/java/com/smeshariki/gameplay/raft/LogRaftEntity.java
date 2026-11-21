@@ -67,6 +67,12 @@ public class LogRaftEntity extends RaftEntity {
 		return this.entityData.get(CENTER) + this.entityData.get(SWAY) * Math.sin(2.0 * Math.PI * s / this.entityData.get(WAVELENGTH) + this.entityData.get(PHASE));
 	}
 
+	/** Бревно идёт по пути: тела толкает жёстко, само от них не толкается. */
+	@Override
+	protected boolean exchangesImpulse() {
+		return false;
+	}
+
 	/** Позицию считает простая формула, присланное сервером клиенту не нужно. */
 	@Override
 	protected void reconcile() {
@@ -93,9 +99,13 @@ public class LogRaftEntity extends RaftEntity {
 			running = true;
 		}
 		s += LOG_SPEED;
-		if (Math.abs(s - expected()) > RESYNC) s = expected();
+		boolean resync = Math.abs(s - expected()) > RESYNC;
+		if (resync) s = expected();
 		route.at(s, lane(s), this.entityData.get(SHIFT), point);
+		net.minecraft.world.phys.Vec3 from = position();
 		place(point[0], point[1], point[2]);
+		// догон расчётного пути — рывок, а не скорость: стоящих везёт, но инерцией не считается
+		if (resync) correction = correction.add(position().subtract(from));
 		if (s >= route.length() && !level().isClientSide()) destroy();
 	}
 }

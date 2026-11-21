@@ -33,9 +33,9 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Волна лавы: маркер у берега лавового озера. Маркер с группой {@code Group} запускает волну только по команде {@link LavaWaves#launch} (триггер LevelMod), а когда
- * она кончилась (обрушилась и слой лавы залит), сообщает {@link LavaWaves#FINISHED}: так уровень сам чередует волны с разных берегов. Маркер без группы пускает
- * волны сам раз в {@code Interval} тиков (первая через {@code Delay}), пока игрок ближе {@code Radius}. От маркера по курсу {@code Yaw} идёт волна высотой {@code Height} со скоростью {@code Speed} блоков/с, на всю ширину озера (не дальше
- * {@code HalfWidth} в стороны, стены пещеры её обрезают). Пройдя {@code Length} блоков, она обрушивается и поднимает лаву озера на слой, пока верх лавы ниже {@code PeakY}.
+ * она кончилась (обрушилась и слой лавы залит), сообщает {@link LavaWaves#FINISHED}: так уровень сам чередует волны с разных берегов. Маркер без группы волн не пускает
+ * (с 2026-11-20; прежде пускал сам раз в {@code Interval} тиков) — сначала задать группу. От маркера по курсу {@code Yaw} идёт волна высотой {@code Height} со скоростью {@code Speed} блоков/с, на всю ширину озера (не дальше
+ * {@code HalfWidth} в стороны, стены пещеры её обрезают). Пройдя {@code Length} блоков, она обрушивается и поднимает лаву озера на {@code Rise} слоёв (0 — не поднимает), не выше {@code PeakY}.
  * Внутри волны тело горит, как в лаве.
  * <p>
  * Про то, что на ней плавает, волна не знает: она только поверхность ({@link #swellAt}) — насколько лава поднята над уровнем и куда её склоны увлекают
@@ -63,17 +63,19 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	private static final EntityDataAccessor<Integer> START = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
 	/** Верхняя клетка лавы в начале волны. */
 	private static final EntityDataAccessor<Integer> BASE = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
+	/** Подъём за обрушение и предел лавы — копии полей {@code rise} и {@code peakY} для показа клиенту (маркер в руке). */
+	private static final EntityDataAccessor<Integer> RISE = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
+	private static final EntityDataAccessor<Integer> PEAK = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
+	/** Наибольший подъём за одно обрушение (слоёв); 0 — волна лаву не поднимает. */
+	public static final int MAX_RISE = 16;
 
 	private int peakY = Integer.MIN_VALUE;
-	private int interval = 200, delay = 0;
-	private float radius = 64f;
 	/** Живые волны обеих сторон: их спрашивает плавающее на лаве ({@link #swellAt}). */
 	public static final List<LavaWaveEntity> ALL = new CopyOnWriteArrayList<>();
 	/** Склон тянет плавающее к гребню: доля расстояния до него за тик и предел, блоков за тик. */
 	private static final double PULL = 0.12, MAX_PULL = 0.25;
 
-	private long nextStart;
-	private boolean wasActive, crashed;
+	private boolean crashed;
 	/** Запуск заказан командой, но волна ещё не пошла: идёт своя волна или заливается слой. */
 	private boolean launchRequested;
 	/** Волна пошла, а о её конце ещё не сообщили. */
@@ -88,7 +90,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	/** Придержанная волна сама отпускается через столько тиков, если уровень её не отпустил: волна не должна зависнуть навсегда. */
 	private static final int HOLD_LIMIT = 1200;
 	private final LavaLayer layer = new LavaLayer();
-	/** Сколько слоёв поднимает одно обрушение ({@code Rise}, 1–8) и сколько ещё залить после текущего. */
+	/** Сколько слоёв поднимает одно обрушение ({@code Rise}, 0–{@link #MAX_RISE}) и сколько ещё залить после текущего. */
 	private int rise = 1, riseLeft = 0;
 
 	public LavaWaveEntity(EntityType<? extends LavaWaveEntity> type, Level level) {
@@ -104,6 +106,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		builder.define(HALF_WIDTH, 16f);
 		builder.define(START, -1);
 		builder.define(BASE, 0);
+		builder.define(RISE, 1);
+		builder.define(PEAK, Integer.MIN_VALUE);
 	}
 
 	// ---------------------------------------------------------------- параметры
@@ -127,6 +131,11 @@ public class LavaWaveEntity extends FireMarkerEntity {
 
 	public float halfWidth() {
 		return this.entityData.get(HALF_WIDTH);
+	}
+
+	/** Полуширина волны поперёк курса (колесо мыши с маркером, {@link LavaWaveScroll}). */
+	public void setHalfWidth(float half) {
+		this.entityData.set(HALF_WIDTH, Math.clamp(half, 0.5f, 64f));
 	}
 
 	public int base() {
@@ -156,6 +165,37 @@ public class LavaWaveEntity extends FireMarkerEntity {
 
 	public float peakY() {
 		return this.peakY;
+	}
+
+	/** Предел лавы и подъём за обрушение, как их видит клиент. */
+	public int shownPeak() {
+		return this.entityData.get(PEAK);
+	}
+
+	public int shownRise() {
+		return this.entityData.get(RISE);
+	}
+
+	/** Верхняя клетка лавы сейчас (маркер стоит над ней). */
+	public int lavaTop() {
+		return getBlockY() - 1;
+	}
+
+	/** Где встанет верх лавы после обрушения: на {@code Rise} слоёв выше, не выше предела. */
+	public int lavaAfterCrash() {
+		int peak = shownPeak();
+		int top = lavaTop() + shownRise();
+		return peak == Integer.MIN_VALUE ? top : Math.min(top, Math.max(peak, lavaTop()));
+	}
+
+	private void setPeak(int peak) {
+		this.peakY = peak;
+		this.entityData.set(PEAK, peak);
+	}
+
+	private void setRise(int rise) {
+		this.rise = Math.clamp(rise, 0, MAX_RISE);
+		this.entityData.set(RISE, this.rise);
 	}
 
 	// ---------------------------------------------------------------- форма волны
@@ -352,23 +392,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 			begin(level, now);
 			return;
 		}
-		if (!group().isEmpty()) return;
-		boolean active = active(level);
-		if (active && !this.wasActive) this.nextStart = now + this.delay;
-		this.wasActive = active;
-		if (active && now >= this.nextStart) {
-			this.nextStart = now + Math.max(1, this.interval);
-			begin(level, now);
-		}
-	}
+		// волна идёт только по заказу (триггер уровня, LavaWaves.launch): сам маркер, даже без группы, ничего не пускает (2026-11-20, по просьбе)
 
-	private boolean active(ServerLevel level) {
-		double r2 = (double) this.radius * this.radius;
-		for (ServerPlayer player : level.players()) {
-			if (player.isSpectator()) continue;
-			if (CharacterEntity.body(player).distanceToSqr(this) <= r2) return true;
-		}
-		return false;
 	}
 
 	/**
@@ -389,7 +414,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		int surface = findSurface(getBlockX(), getBlockY(), getBlockZ());
 		if (surface == Integer.MIN_VALUE) return;
 		// поставлен через /summon без PeakY
-		if (this.peakY == Integer.MIN_VALUE) this.peakY = surface + 8;
+		if (this.peakY == Integer.MIN_VALUE) setPeak(surface + 8);
 		this.entityData.set(BASE, surface);
 		// лава поднялась: маркер держится у её поверхности, иначе поиск ушёл бы из окна
 		if (getBlockY() != surface + 1) setPos(getX(), surface + 1, getZ());
@@ -413,7 +438,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		Vec3 mid = new Vec3(getX() + c.x * a, surfaceY(), getZ() + c.z * a);
 		level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.BUCKET_EMPTY_LAVA, SoundSource.BLOCKS, 3f, 0.5f);
 		level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.LAVA_EXTINGUISH, SoundSource.BLOCKS, 2f, 0.6f);
-		if (base() < this.peakY && !this.layer.busy() && this.layer.plan(level, getBlockX(), base() + 1, getBlockZ(), true, "Волна лавы у " + blockPosition()))
+		if (this.rise > 0 && base() < this.peakY && !this.layer.busy() && this.layer.plan(level, getBlockX(), base() + 1, getBlockZ(), true, "Волна лавы у " + blockPosition()))
 			this.riseLeft = Math.min(this.rise, this.peakY - base()) - 1;
 	}
 
@@ -464,9 +489,46 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		this.entityData.set(LENGTH, Math.clamp(length() + sign * LENGTH_STEP, MIN_LENGTH, MAX_LENGTH));
 	}
 
+	/** ПКМ — курс; Ctrl+ПКМ — путь +2; Shift+ПКМ — подъём лавы за обрушение +1 слой; Ctrl+Shift+ПКМ — предел лавы +1. */
+	@Override
+	protected void click(Player player) {
+		boolean ctrl = holdsCtrl(player), shift = holdsShift(player);
+		if (!shift) {
+			super.click(player);
+			return;
+		}
+		if (ctrl) setPeak((this.peakY == Integer.MIN_VALUE ? lavaTop() + 8 : this.peakY) + 1);
+		else setRise(this.rise + 1);
+		announceLevel(player, ctrl);
+	}
+
+	/** ЛКМ — убрать; Ctrl+ЛКМ — путь −2; Shift+ЛКМ — подъём −1 слой (до 0: волна лаву не поднимает); Ctrl+Shift+ЛКМ — предел лавы −1 (не ниже лавы сейчас). */
+	@Override
+	protected boolean hit(ServerLevel level, Player player) {
+		boolean ctrl = holdsCtrl(player), shift = holdsShift(player);
+		if (!shift) return super.hit(level, player);
+		if (ctrl) setPeak(Math.max(lavaTop(), (this.peakY == Integer.MIN_VALUE ? lavaTop() + 8 : this.peakY) - 1));
+		else setRise(this.rise - 1);
+		announceLevel(player, ctrl);
+		return false;
+	}
+
+	/** Над панелью коротко, иначе строка не влезает в экран: курс и путь (их меняют ПКМ и Ctrl), остальное — отдельными строками при своей правке. */
 	@Override
 	public void announce(Player player) {
-		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_set", Math.floorMod(Math.round(yaw()), 360), Math.round(length()), Math.round(height()), this.peakY));
+		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_set", Math.floorMod(Math.round(yaw()), 360), Math.round(length())));
+	}
+
+	/** Подъём (Shift) или предел (Ctrl+Shift): и где встанет лава после обрушения. */
+	private void announceLevel(Player player, boolean peak) {
+		player.sendOverlayMessage(peak ? Component.translatable("message.gameplaymod.lava_wave_peak", this.peakY, lavaAfterCrash())
+				: Component.translatable("message.gameplaymod.lava_wave_rise", this.rise, lavaAfterCrash(), this.peakY));
+	}
+
+	/** Полуширина (колесо). */
+	public void announceWidth(Player player) {
+		float half = halfWidth();
+		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_width", half == Math.rint(half) ? Integer.toString(Math.round(half)) : String.format("%.1f", half)));
 	}
 
 	/** Маркер встаёт над поверхностью лавы в столбце под прицелом (клик по лаве проходит до дна); курс — взгляд. Предел лавы по умолчанию на 8 слоёв выше. */
@@ -476,12 +538,12 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		int y = surface == Integer.MIN_VALUE ? pos.getY() : surface + 1;
 		setPos(pos.getX() + 0.5, y, pos.getZ() + 0.5);
 		this.entityData.set(YAW, Math.round(player.getYRot() / TURN) * TURN);
-		if (this.peakY == Integer.MIN_VALUE) this.peakY = y - 1 + 8;
+		if (this.peakY == Integer.MIN_VALUE) setPeak(y - 1 + 8);
 	}
 
 	@Override
 	public boolean shouldRenderAtSqrDistance(double distance) {
-		return distance < 160 * 160;
+		return distance < 256 * 256;
 	}
 
 	@Override
@@ -493,11 +555,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		out.putFloat("Speed", this.entityData.get(SPEED));
 		out.putFloat("HalfWidth", halfWidth());
 		out.putInt("PeakY", this.peakY == Integer.MIN_VALUE ? getBlockY() - 1 + 8 : this.peakY);
-		out.putInt("Interval", this.interval);
 		out.putInt("Rise", this.rise);
 		out.putInt("RiseLeft", this.riseLeft);
-		out.putInt("Delay", this.delay);
-		out.putFloat("Radius", this.radius);
 		// прерванная сохранением волна после загрузки пойдёт заново, иначе уровень не дождался бы её конца
 		out.putBoolean("Launch", this.launchRequested || this.finishPending);
 	}
@@ -510,12 +569,9 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		this.entityData.set(HEIGHT, Math.clamp(in.getFloatOr("Height", height()), 0.5f, 16f));
 		this.entityData.set(SPEED, Math.clamp(in.getFloatOr("Speed", this.entityData.get(SPEED)), 0.5f, 40f));
 		this.entityData.set(HALF_WIDTH, Math.clamp(in.getFloatOr("HalfWidth", halfWidth()), 0.5f, 64f));
-		this.peakY = in.getIntOr("PeakY", this.peakY);
-		this.interval = Math.max(1, in.getIntOr("Interval", this.interval));
-		this.rise = Math.clamp(in.getIntOr("Rise", this.rise), 1, 8);
-		this.riseLeft = Math.clamp(in.getIntOr("RiseLeft", this.riseLeft), 0, 7);
-		this.delay = Math.max(0, in.getIntOr("Delay", this.delay));
-		this.radius = Math.max(1f, in.getFloatOr("Radius", this.radius));
+		setPeak(in.getIntOr("PeakY", this.peakY));
+		setRise(in.getIntOr("Rise", this.rise));
+		this.riseLeft = Math.clamp(in.getIntOr("RiseLeft", this.riseLeft), 0, Math.max(0, MAX_RISE - 1));
 		this.launchRequested = in.getBooleanOr("Launch", this.launchRequested);
 		// прерванная сохранением волна не продолжается, а начинается заново (Launch)
 		if (!level().isClientSide()) this.entityData.set(START, -1);

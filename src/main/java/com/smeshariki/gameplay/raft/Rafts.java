@@ -28,6 +28,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.CreativeModeTab;
@@ -37,6 +38,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -46,6 +48,8 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class Rafts {
 	public static EntityType<RaftEntity> TYPE;
+	/** Невидимое сиденье на плоту ({@link SeatEntity}). */
+	public static EntityType<SeatEntity> SEAT_TYPE;
 	public static Item ITEM;
 	/** Больше блоков в один плот не собираем. */
 	public static final int MAX_BLOCKS = 300;
@@ -85,6 +89,23 @@ public final class Rafts {
 			if (entity instanceof RaftEntity r) RaftEntity.ALL.removeIf(x -> x == r);
 		});
 		PayloadTypeRegistry.clientboundPlay().register(RaftBlocks.TYPE, RaftBlocks.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(RaftPush.TYPE, RaftPush.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(RaftPush.TYPE, RaftPush.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(RaftFling.TYPE, RaftFling.CODEC);
+		ResourceKey<EntityType<?>> seatKey = ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "seat"));
+		SEAT_TYPE = Registry.register(BuiltInRegistries.ENTITY_TYPE, seatKey, EntityType.Builder.<SeatEntity>of(SeatEntity::new, MobCategory.MISC)
+				// не noSave: ваниль на сервере не сажает на сущность несохраняемого типа; не сохраняет её сама SeatEntity.shouldBeSaved
+				.sized(0.2f, 0.2f).clientTrackingRange(12).updateInterval(1).fireImmune().noSummon().build(seatKey));
+		PayloadTypeRegistry.serverboundPlay().register(RaftSit.TYPE, RaftSit.CODEC);
+		ServerPlayNetworking.registerGlobalReceiver(RaftSit.TYPE, (msg, ctx) -> sit(ctx.player(), msg));
+		ServerPlayNetworking.registerGlobalReceiver(RaftPush.TYPE, (msg, ctx) -> {
+			// толчок тела игрока: плот рядом с ним, добавка ограничена в applyPush
+			if (!(ctx.player().level().getEntity(msg.entityId()) instanceof RaftEntity r) || r.isRemoved()) return;
+			double reach = 8 + Math.max(r.sx(), r.sz());
+			if (ctx.player().distanceToSqr(r) > reach * reach) return;
+			r.applyPush(msg.dx(), msg.dz());
+			broadcastPush(r, msg.dx(), msg.dz(), ctx.player());
+		});
 		EntityTrackingEvents.START_TRACKING.register((entity, player) -> {
 			if (entity instanceof RaftEntity r) ServerPlayNetworking.send(player, blocks(r));
 		});
@@ -280,5 +301,62 @@ public final class Rafts {
 			}
 		}
 		raft.discard();
+	}
+
+	/** Плот, шар или бревно под прицелом (вместе с брёвнами, в отличие от {@link #looked}) не дальше maxDistance и точка на нём; null — нет. */
+	public static Hit lookedAt(Player player, Level level, double maxDistance) {
+		Vec3 eye = player.getEyePosition(), look = player.getLookAngle();
+		Vec3 end = eye.add(look.scale(REACH));
+		Hit best = null;
+		for (RaftEntity r : RaftEntity.ALL) {
+			if (r.level() != level || r.isRemoved() || r.destroyed()) continue;
+			double d = r.rayDistance(eye, end);
+			if (!Double.isNaN(d) && d < maxDistance && d <= REACH && (best == null || d < best.distance)) best = new Hit(r, eye.add(look.scale(d)), d);
+		}
+		return best;
+	}
+
+	public record Hit(RaftEntity raft, Vec3 point, double distance) {
+	}
+
+	/**
+	 * Сесть (сервер): игрок без транспорта сам, вселённый — его персонаж. Сиденье встаёт на верх палубы над точкой клика (клик в борт — тоже наверх)
+	 * и едет с плотом. Не садится, если сидящий уже на чём-то (кроме игрока на своём персонаже) или точка далеко.
+	 */
+	private static void sit(net.minecraft.server.level.ServerPlayer player, RaftSit msg) {
+		if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level) || player.isSpectator()) return;
+		if (!(level.getEntity(msg.raftId()) instanceof RaftEntity raft) || raft.isRemoved() || raft.destroyed()) return;
+		Entity rider = SeatEntity.riderOf(player);
+		if (rider.isPassenger() || rider.isVehicle() && rider != player.getVehicle()) return;
+		Vec3 point = new Vec3(msg.x(), msg.y(), msg.z());
+		if (player.getEyePosition().distanceTo(point) > REACH + 1) return;
+		// верх палубы в этой колонке: самая высокая коробка блоков плота над точкой
+		double top = raft.getY() + raft.sy();
+		AABB column = new AABB(point.x - 0.01, point.y - 0.01, point.z - 0.01, point.x + 0.01, top + 0.01, point.z + 0.01);
+		List<net.minecraft.world.phys.shapes.VoxelShape> shapes = new ArrayList<>();
+		raft.collect(column, shapes);
+		double y = Double.NaN;
+		for (var shape : shapes) for (AABB box : shape.toAabbs()) if (box.intersects(column)) y = Double.isNaN(y) ? box.maxY : Math.max(y, box.maxY);
+		if (Double.isNaN(y)) return;
+		Vec3 at = new Vec3(point.x, y, point.z);
+		SeatEntity seat = new SeatEntity(SEAT_TYPE, level);
+		seat.setLocal(raft.toLocal(at));
+		seat.setPos(at);
+		level.addFreshEntity(seat);
+		if (!seat.startRiding(raft, true, true) || !rider.startRiding(seat, true, true)) seat.discard();
+	}
+
+	/** Разослать бросок плота всем, кто его видит. */
+	static void broadcastFling(RaftEntity raft, Vec3 v) {
+		RaftFling packet = new RaftFling(raft.getId(), (float) v.x, (float) v.y, (float) v.z);
+		for (net.minecraft.server.level.ServerPlayer watcher : net.fabricmc.fabric.api.networking.v1.PlayerLookup.tracking(raft)) ServerPlayNetworking.send(watcher, packet);
+	}
+
+	/** Разослать толчок плота всем, кто его видит, кроме {@code except} (он уже применил его у себя). */
+	static void broadcastPush(RaftEntity raft, double dx, double dz, net.minecraft.server.level.ServerPlayer except) {
+		RaftPush packet = new RaftPush(raft.getId(), (float) dx, (float) dz);
+		for (net.minecraft.server.level.ServerPlayer watcher : net.fabricmc.fabric.api.networking.v1.PlayerLookup.tracking(raft)) {
+			if (watcher != except) ServerPlayNetworking.send(watcher, packet);
+		}
 	}
 }

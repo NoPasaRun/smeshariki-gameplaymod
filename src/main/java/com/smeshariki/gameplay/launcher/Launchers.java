@@ -29,5 +29,7 @@ public final class Launchers {
 		ITEM = Registry.register(BuiltInRegistries.ITEM, itemKey, new FireMarkerItem(new Item.Properties().setId(itemKey), level -> new LauncherEntity(TYPE, level)));
 		ResourceKey<CreativeModeTab> tab = ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("tools_and_utilities"));
 		CreativeModeTabEvents.modifyOutputEvent(tab).register(output -> output.accept(ITEM));
+		// полёт из жерла ведёт тик мира, а не жерло (далёкое жерло не тикает); клиент регистрирует своё в GameplayModClient
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_LEVEL_TICK.register(LauncherEntity::tickFlights);
 	}
 }

@@ -48,8 +48,6 @@ public class BalloonEntity extends RaftEntity implements com.smeshariki.gameplay
 	private static final double NUDGE_SPEED = NUDGE_DISTANCE * WIND_GRIP / (1 - WIND_GRIP);
 	/** Быстрее шар рулём не разогнать: стоящих на нём перенос двигает не дальше полублока за тик. */
 	private static final double MAX_SIDE_SPEED = 0.5;
-	/** Доля расхождения с сервером, убираемая клиентом за тик. */
-	private static final double PULL = 0.02;
 
 	private static final EntityDataAccessor<Float> TARGET_Y = SynchedEntityData.defineId(BalloonEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> WIND_X = SynchedEntityData.defineId(BalloonEntity.class, EntityDataSerializers.FLOAT);
@@ -162,21 +160,6 @@ public class BalloonEntity extends RaftEntity implements com.smeshariki.gameplay
 	}
 
 	@Override
-	protected double snapDistance() {
-		return 16.0;
-	}
-
-	/** Ветер и цель приходят с задержкой, поэтому клиент понемногу подтягивается к серверу. Стоящих на шаре сдвинет {@code carry}. */
-	@Override
-	protected void reconcile() {
-		super.reconcile();
-		// микроскопические шаги стоящий на шаре не повторил бы и понемногу оказался бы внутри палубы (см. RaftEntity.simulate)
-		if (serverPos == null || position().distanceToSqr(serverPos) < 1.0e-6) return;
-		double x = getX() + (serverPos.x - getX()) * PULL, y = getY() + (serverPos.y - getY()) * PULL, z = getZ() + (serverPos.z - getZ()) * PULL;
-		if (free(x, y, z)) place(x, y, z);
-	}
-
-	@Override
 	public String group() {
 		return group;
 	}
@@ -255,7 +238,9 @@ public class BalloonEntity extends RaftEntity implements com.smeshariki.gameplay
 			if (free(x, y + vy, z)) y = Math.clamp(y + vy, minY(), Math.max(minY(), maxY()));
 			else vy = 0;
 		}
-		if (x != getX() || y != getY() || z != getZ()) place(x, y, z);
+		// привязанный верёвкой к блоку мира шар дальше её длины не улетит
+		Vec3 held = tether(x, y, z);
+		if (held.x != getX() || held.y != getY() || held.z != getZ()) place(held.x, held.y, held.z);
 	}
 
 	@Override

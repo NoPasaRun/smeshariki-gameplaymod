@@ -90,9 +90,10 @@ public final class LavaWaves {
 	}
 
 	public static void init() {
+		LavaWaveScroll.init();
 		ResourceKey<EntityType<?>> typeKey = ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "lava_wave"));
 		// данные (начало волны) должны доходить сразу, а не раз в несколько секунд
-		TYPE = Registry.register(BuiltInRegistries.ENTITY_TYPE, typeKey, EntityType.Builder.<LavaWaveEntity>of(LavaWaveEntity::new, MobCategory.MISC).sized(0.5f, 0.5f).clientTrackingRange(10).updateInterval(1).fireImmune().build(typeKey));
+		TYPE = Registry.register(BuiltInRegistries.ENTITY_TYPE, typeKey, EntityType.Builder.<LavaWaveEntity>of(LavaWaveEntity::new, MobCategory.MISC).sized(0.5f, 0.5f).clientTrackingRange(16).updateInterval(1).fireImmune().build(typeKey));
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {
 			if (entity instanceof LavaWaveEntity w) {
 				LavaWaveEntity.ALL.add(w);

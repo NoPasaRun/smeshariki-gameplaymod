@@ -60,6 +60,44 @@ public final class Mechanics {
 
 		/** Наименьшие и наибольшие x, z контуров: {@code {minX, minZ, maxX, maxZ}}. */
 		double[] boundsXZ();
+
+		/** Ближайшая к {@code pos} точка границы по горизонтали (высота та же), чуть внутри области; {@code null} — не умеет. */
+		default @Nullable Vec3 nearestEdge(Vec3 pos) {
+			return null;
+		}
+	}
+
+	/** Именованные области (локации LevelMod): {@link #setPlaces}. */
+	public interface Places {
+		@Nullable Area area(MinecraftServer server, String name);
+
+		java.util.Collection<String> names(MinecraftServer server);
+	}
+
+	private static Places places = new Places() {
+		@Override
+		public @Nullable Area area(MinecraftServer server, String name) {
+			return null;
+		}
+
+		@Override
+		public java.util.Collection<String> names(MinecraftServer server) {
+			return List.of();
+		}
+	};
+
+	/** Откуда брать локации по имени (ставит LevelMod). */
+	public static void setPlaces(Places source) {
+		places = source;
+	}
+
+	/** Локация-область по имени, {@code null} — нет такой (или это точка, а не область). */
+	public static @Nullable Area place(MinecraftServer server, String name) {
+		return name.isEmpty() ? null : places.area(server, name);
+	}
+
+	public static java.util.Collection<String> placeNames(MinecraftServer server) {
+		return places.names(server);
 	}
 
 	/** Разовое действие механики. */

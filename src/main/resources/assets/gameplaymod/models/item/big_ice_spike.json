@@ -1,3 +1,6 @@
 {
- "parent": "gameplaymod:block/big_ice_spike_tip"
+ "parent": "minecraft:item/generated",
+ "textures": {
+  "layer0": "gameplaymod:item/big_ice_spike"
+ }
 }

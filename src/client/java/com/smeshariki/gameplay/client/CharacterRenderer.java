@@ -64,6 +64,8 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		/** Взмах рукой того, кто ведёт персонажа: ход 0..1 и рука (сторона модели: −1 — правая у персонажа). */
 		float attack;
 		int attackSide;
+		/** Едет пассажиром (сиденье на плоту, лодка): сидит — ноги вперёд, шар низом на сиденье. */
+		boolean sitting;
 		/** Лежит на скате: наклон туловища, иначе NaN. */
 		float lying = Float.NaN;
 		boolean hurt, hidden;
@@ -186,12 +188,19 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 			state.headYaw = state.bodyYaw = lie.yaw;
 			state.lying = lie.tilt;
 		} else state.lying = Float.NaN;
+		state.sitting = !preview && entity.isPassenger();
 		state.death = entity.deathTime > 0 ? Mth.clamp((entity.deathTime + partialTick) / 20f, 0f, 1f) : 0f;
 	}
+
+	/** Поза сидя: ноги вперёд вокруг бёдер (чуть ниже горизонтали), ручки немного вперёд — на коленях. */
+	private static final CharacterPose SIT = new CharacterPose().setEuler(Part.LEG_LEFT, -80f, 0, 0).setEuler(Part.LEG_RIGHT, -80f, 0, 0)
+			.setEuler(Part.ARM_LEFT, -25f, 0, 0).setEuler(Part.ARM_RIGHT, -25f, 0, 0);
 
 	@Override
 	public void submit(State state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
 		if (state.hidden) return;
+		// сидит без позы кат-сцены: своя поза; поза кат-сцены важнее
+		if (state.sitting && state.pose == null) state.pose = SIT;
 		int light = state.lightCoords;
 		// всё тело поворачивается к голове, ноги — к телу; при смерти падает на бок
 		float fall = (float) Math.toRadians(90) * state.death;
@@ -216,6 +225,8 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		int overlay = OverlayTexture.pack(OverlayTexture.u(0f), OverlayTexture.v(state.hurt));
 		pose.pushPose();
 		pose.translate(0, -state.slopeDrop, 0);
+		// сидя шар лежит низом на сиденье (точка ног пассажира): опускаем на высоту низа шара над землёй
+		if (state.sitting) pose.translate(0, -(model.centerY() - RoundBody.R) * model.scale(), 0);
 		pose.scale(model.scale(), model.scale(), model.scale());
 		collector.submitCustomGeometry(pose, RenderTypes.entityCutout(texture), (p, c) -> {
 			float swing = (float) Math.sin(state.walkPos * 0.6662f) * state.walkSpeed;

@@ -45,7 +45,7 @@ public class RopeEntity extends Entity {
 	public static final float LONGEST = 48f;
 	/** Верёвка считается натянутой, если конец не ближе длины на столько. */
 	private static final double TAUT = 0.1;
-	private static final double GRAVITY = 0.05;
+	public static final double GRAVITY = 0.05;
 	/** Ванильное сопротивление воздуха игроку за тик: по горизонтали и по вертикали. */
 	public static final double VANILLA_DRAG_XZ = 0.91;
 	private static final double VANILLA_DRAG_Y = 0.98;
@@ -280,20 +280,33 @@ public class RopeEntity extends Entity {
 	}
 
 	/** Верёвка между плотом и шаром, с точки зрения плота: точка на плоту, точка на шаре в мире и длина. */
-	public record Link(Vec3 local, Vec3 balloonPoint, double length) {
+	/**
+	 * Верёвка, держащая плот: крепление на плоту (смещение от его позиции в мире), другой конец ({@code point}) и длина.
+	 * {@code fixed} — другой конец на блоке мира, а не на шаре.
+	 */
+	public record Link(Vec3 offset, Vec3 point, double length, boolean fixed) {
 	}
 
-	/** Верёвки, которыми плот привязан к шару. Обе стороны считают по своим данным. */
+	/** Верёвки, которыми плот или шар привязан к шару или к блоку мира. Обе стороны считают по своим данным. */
 	public static List<Link> linksOf(RaftEntity raft) {
 		var area = raft.getBoundingBox().inflate(LONGEST + raft.sx() + raft.sy() + raft.sz());
 		List<Link> links = new java.util.ArrayList<>();
 		for (RopeEntity rope : raft.level().getEntitiesOfClass(RopeEntity.class, area, r -> r.mode() == ATTACHED)) {
 			RaftEntity start = rope.raftById(rope.entityData.get(ANCHOR_RAFT)), end = rope.raftById(rope.entityData.get(END_RAFT));
 			Vec3 anchorLocal = vec(rope.entityData.get(ANCHOR)), endLocal = vec(rope.entityData.get(END_LOCAL));
-			if (start == raft && end instanceof BalloonEntity b) links.add(new Link(anchorLocal, b.fromLocal(endLocal, 1f), rope.length()));
-			else if (end == raft && start instanceof BalloonEntity b) links.add(new Link(endLocal, b.fromLocal(anchorLocal, 1f), rope.length()));
+			if (start == raft && end instanceof BalloonEntity b && b != raft) links.add(new Link(offset(raft, anchorLocal), b.fromLocal(endLocal, 1f), rope.length(), false));
+			else if (end == raft && start instanceof BalloonEntity b && b != raft) links.add(new Link(offset(raft, endLocal), b.fromLocal(anchorLocal, 1f), rope.length(), false));
+			// крепление на блоке мира (ANCHOR — точка в мире), конец на плоту
+			else if (end == raft && !rope.anchorOnRaft() && !rope.anchorOnEntity()) links.add(new Link(offset(raft, endLocal), anchorLocal, rope.length(), true));
+			// крепление на плоту, конец зацеплен за блок мира (позиция верёвки — конец)
+			else if (start == raft && rope.entityData.get(END_RAFT) == NO_RAFT) links.add(new Link(offset(raft, anchorLocal), rope.position(), rope.length(), true));
 		}
 		return links;
+	}
+
+	/** Точка плота в его системе — смещение от его позиции в мире (у шара с поворотом). */
+	private static Vec3 offset(RaftEntity raft, Vec3 local) {
+		return raft.fromLocal(local, 1f).subtract(raft.position());
 	}
 
 	private static Vec3 vec(Vector3fc v) {
@@ -520,7 +533,8 @@ public class RopeEntity extends Entity {
 			if (taut) body.resetFallDistance();
 			Vec3 swing = swingFix(a, point.add(fix));
 			fix = fix.add(swing);
-			if (fix.lengthSqr() > 1e-8) body.move(MoverType.SELF, fix);
+			Vec3 bodyFix = fix;
+			if (fix.lengthSqr() > 1e-8) RaftEntity.withoutPush(() -> body.move(MoverType.SELF, bodyFix));
 			Vec3 v = body.getDeltaMovement();
 			Vec3 before = v;
 			if (taut && !body.onGround() && !body.isInWater() && !p.isFallFlying() && !p.getAbilities().flying) {
@@ -533,7 +547,8 @@ public class RopeEntity extends Entity {
 			body.setDeltaMovement(swingClip(a, point.add(fix), clipped));
 		} else if (!level().isClientSide() && !(holder instanceof Player)) {
 			// персонажа без игрока (напарника) двигает сервер: верёвка держит его там же, без маятника
-			if (fix.lengthSqr() > 1e-8) holder.move(MoverType.SELF, fix);
+			Vec3 holderFix = fix;
+			if (fix.lengthSqr() > 1e-8) RaftEntity.withoutPush(() -> holder.move(MoverType.SELF, holderFix));
 			holder.setDeltaMovement(clipVelocity(a, point.add(fix), holder.getDeltaMovement(), armLength()));
 		}
 	}

@@ -38,7 +38,8 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 	private static final double MIN_HEIGHT = 0.04;
 	/** Чуть выше настоящей лавы, по той же причине. */
 	private static final double LIFT = 0.01;
-	private static final int ORANGE = 0xFFFF8020, YELLOW = 0xFFFFD020;
+	private static final Identifier ARROW = Identifier.fromNamespaceAndPath(com.smeshariki.gameplay.GameplayMod.NAMESPACE, "textures/entity/lava_wave_marker_arrow.png");
+	private static final float ARROW_HALF = 0.4f;
 	/** Через столько тиков места над столбцами пересчитываются: под волной могли поставить или сломать блок. */
 	private static final int ROOM_REFRESH = 40;
 
@@ -61,14 +62,15 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 		});
 	}
 
-	private record Line(Vec3 a, Vec3 b, int color) {
-	}
-
 	public static final class State extends EntityRenderState {
 		/** По 4 вершины на четырёхугольник: x, y, z, u, v. */
 		float[] quads = new float[0];
 		int quadCount;
-		final List<Line> lines = new ArrayList<>();
+		/** Маркер волны в руке: стрелка курса на поверхности лавы. */
+		boolean marker;
+		Vec3 course = new Vec3(0, 0, 1);
+		/** Высота поверхности лавы от позиции маркера (маркер стоит на клетку выше верхней клетки лавы). */
+		float surface;
 	}
 
 	public LavaWaveRenderer(EntityRendererProvider.Context context) {
@@ -80,21 +82,45 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 		return new State();
 	}
 
-	/** Волна шире любого кадра сущности: рисуем, пока идёт или пока в руке маркер. */
+	/** Волна шире любого кадра сущности: рисуем, пока идёт (в пределах дальности) или пока в руке маркер волны. */
 	@Override
 	public boolean shouldRender(LavaWaveEntity entity, Frustum frustum, double x, double y, double z) {
-		return entity.shouldRender(x, y, z) && (entity.running(entity.waveTime(0)) || FireMarkerRenderer.holdsMarker());
+		return holdsMarker() || entity.shouldRender(x, y, z) && entity.running(entity.waveTime(0));
+	}
+
+	private static double scrolled;
+
+	/** Колесо с маркером волны в руке, наведённым на маркер волны: полуширина ±1 ({@link LavaWaveScroll}); true — щелчок съеден, панель не листается. */
+	static boolean scroll(double delta) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.gui.screen() != null || !holdsMarker() || !(mc.crosshairPickEntity instanceof LavaWaveEntity wave)) {
+			scrolled = 0;
+			return false;
+		}
+		scrolled += delta;
+		int steps = (int) scrolled;
+		if (steps == 0) return true;
+		scrolled -= steps;
+		net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(new com.smeshariki.gameplay.lava.LavaWaveScroll(wave.getId(), steps));
+		return true;
+	}
+
+	/** Как у ветра и течения: стрелку видно только с маркером своего вида в руке. */
+	static boolean holdsMarker() {
+		var player = Minecraft.getInstance().player;
+		return player != null && player.getMainHandItem().is(LavaWaves.ITEM);
 	}
 
 	@Override
 	public void extractRenderState(LavaWaveEntity entity, State state, float partialTick) {
 		super.extractRenderState(entity, state, partialTick);
 		state.quadCount = 0;
-		state.lines.clear();
 		Vec3 origin = entity.getPosition(partialTick);
 		double t = entity.waveTime(partialTick);
 		if (entity.running(t)) surface(entity, t, origin, state);
-		if (FireMarkerRenderer.holdsMarker()) lines(entity, origin, state.lines);
+		state.marker = holdsMarker();
+		state.course = entity.course();
+		state.surface = (float) (entity.lavaTop() + LavaWaveEntity.LAVA_TOP + 0.02 - origin.y);
 	}
 
 	private static double room(LavaWaveEntity e, Rooms rooms, int x, int z) {
@@ -159,19 +185,7 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 		state.quadCount = out.size();
 	}
 
-	private static void lines(LavaWaveEntity e, Vec3 origin, List<Line> out) {
-		Vec3 c = e.course(), s = e.side();
-		Vec3 at = new Vec3(e.getX(), e.surfaceY() + 0.05, e.getZ()).subtract(origin);
-		Vec3 end = at.add(c.scale(e.length()));
-		out.add(new Line(at, end, ORANGE));
-		out.add(new Line(end, end.subtract(c.scale(1)).add(s.scale(0.6)), ORANGE));
-		out.add(new Line(end, end.subtract(c.scale(1)).subtract(s.scale(0.6)), ORANGE));
-		Vec3 half = s.scale(e.halfWidth());
-		out.add(new Line(at.subtract(half), at.add(half), YELLOW));
-		out.add(new Line(end.subtract(half), end.add(half), YELLOW));
-		out.add(new Line(at.subtract(half), end.subtract(half), YELLOW));
-		out.add(new Line(at.add(half), end.add(half), YELLOW));
-	}
+
 
 	@Override
 	public void submit(State state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
@@ -196,18 +210,27 @@ public final class LavaWaveRenderer extends EntityRenderer<LavaWaveEntity, LavaW
 				}
 			});
 		}
-		if (!state.lines.isEmpty()) {
-			List<Line> lines = List.copyOf(state.lines);
-			collector.submitCustomGeometry(pose, RenderTypes.lines(), (p, c) -> {
-				for (Line line : lines) segment(c, p, line);
-			});
-		}
+		if (state.marker) submitArrow(state, pose, collector);
 		super.submit(state, pose, collector, camera);
 	}
 
-	private static void segment(VertexConsumer c, PoseStack.Pose p, Line line) {
-		Vec3 n = line.b().subtract(line.a()).normalize();
-		c.addVertex(p, (float) line.a().x, (float) line.a().y, (float) line.a().z).setColor(line.color()).setNormal(p, (float) n.x, (float) n.y, (float) n.z).setLineWidth(2f);
-		c.addVertex(p, (float) line.b().x, (float) line.b().y, (float) line.b().z).setColor(line.color()).setNormal(p, (float) n.x, (float) n.y, (float) n.z).setLineWidth(2f);
+	/** Багровая стрелка на поверхности лавы по курсу волны (картинка смотрит вправо: «вправо» — курс, «вверх» — вбок), видна сверху и снизу; светится сама. */
+	private static void submitArrow(State state, PoseStack pose, SubmitNodeCollector collector) {
+		Vec3 f = state.course.scale(ARROW_HALF), side = new Vec3(-state.course.z, 0, state.course.x).scale(ARROW_HALF), up = new Vec3(0, state.surface, 0);
+		collector.submitCustomGeometry(pose, RenderTypes.entityCutout(ARROW), (p, c) -> {
+			arrowVertex(c, p, up.subtract(f).add(side), 0, 0, 1);
+			arrowVertex(c, p, up.add(f).add(side), 1, 0, 1);
+			arrowVertex(c, p, up.add(f).subtract(side), 1, 1, 1);
+			arrowVertex(c, p, up.subtract(f).subtract(side), 0, 1, 1);
+			arrowVertex(c, p, up.subtract(f).subtract(side), 0, 1, -1);
+			arrowVertex(c, p, up.add(f).subtract(side), 1, 1, -1);
+			arrowVertex(c, p, up.add(f).add(side), 1, 0, -1);
+			arrowVertex(c, p, up.subtract(f).add(side), 0, 0, -1);
+		});
+	}
+
+	private static void arrowVertex(VertexConsumer c, PoseStack.Pose p, Vec3 v, float u, float w, float ny) {
+		c.addVertex(p, (float) v.x, (float) v.y, (float) v.z).setColor(255, 255, 255, 255).setUv(u, w).setOverlay(OverlayTexture.NO_OVERLAY)
+				.setLight(FULL_BRIGHT).setNormal(p, 0, ny, 0);
 	}
 }

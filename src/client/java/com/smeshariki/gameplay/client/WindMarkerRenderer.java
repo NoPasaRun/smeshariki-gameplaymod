@@ -26,7 +26,7 @@ import net.minecraft.world.phys.Vec3;
  * нет: её частицы порыва — это клубы). Пока в руке маркер, поверх рисуется стрелка, в плоскости ветра и поперёк неё.
  */
 public final class WindMarkerRenderer extends EntityRenderer<WindMarkerEntity, WindMarkerRenderer.State> {
-	private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/item/wind_marker.png");
+	private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/entity/wind_marker_arrow.png");
 	/** Половина стороны картинки, блоков. */
 	private static final float HALF = 0.5f;
 	private static final Identifier WIND_TEXTURE = Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "textures/entity/wind.png");

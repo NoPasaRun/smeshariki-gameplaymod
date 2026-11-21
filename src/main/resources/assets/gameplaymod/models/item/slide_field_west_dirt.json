@@ -1,3 +1,6 @@
 {
- "parent": "gameplaymod:block/slide_field_west_dirt"
+ "parent": "minecraft:item/generated",
+ "textures": {
+  "layer0": "gameplaymod:item/slide_field_west_dirt"
+ }
 }

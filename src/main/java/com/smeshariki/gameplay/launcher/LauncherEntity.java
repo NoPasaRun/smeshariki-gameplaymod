@@ -6,7 +6,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import com.smeshariki.gameplay.ball.BallEntity;
 import com.smeshariki.gameplay.barrage.FireMarkerEntity;
+import com.smeshariki.gameplay.raft.BalloonEntity;
+import com.smeshariki.gameplay.raft.LogRaftEntity;
+import com.smeshariki.gameplay.raft.RaftEntity;
 import com.smeshariki.gameplay.character.CharacterEntity;
 import com.smeshariki.gameplay.rope.RopeEntity;
 
@@ -32,13 +36,14 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Жерло: маркер на блоке, который вышвыривает персонажей по дуге. Кто ступил в клетку над блоком, улетает по курсу {@code Yaw} на {@code Distance} блоков, поднявшись на
- * {@code Height} над жерлом, и приземляется без урона от падения. Жерло всё время чуть дымит. Игрока и вселённого толкает его клиент (их движение считает он), остальных живых сервер:
- * поэтому {@link #tick} работает на обеих сторонах. В полёте горизонтальная скорость не гаснет: ваниль съела бы её и дуга стала бы кривой. С маркером в руке: ПКМ — курс +30°,
+ * {@code Height} над жерлом; падение считается от вершины, как обычное (мимо воды с большой высоты — урон). Жерло всё время чуть дымит. Игрока и вселённого толкает его клиент (их движение считает он), остальных живых сервер:
+ * поэтому {@link #tick} работает на обеих сторонах. Весь полёт — инерция (ваниль съела бы горизонталь), и клавиши в полёте копятся
+ * в скорость (см. {@link #INERTIA_LOSS}); {@code Distance} — куда упадёт тело, если ничего не нажимать. С маркером в руке: ПКМ — курс +30°,
  * Ctrl+ПКМ и Ctrl+ЛКМ — дальность ±шаг, Shift+ПКМ и Shift+ЛКМ — высота ±шаг, Ctrl+Shift+ПКМ и Ctrl+Shift+ЛКМ — следующий и прежний шаг (угол 5–90°, длина 0,5–10), ЛКМ — убрать. Остальное через {@code /data}.
  */
 public class LauncherEntity extends FireMarkerEntity {
 	public static final float TURN = 30f;
-	private static final float MIN_DISTANCE = 0f, MAX_DISTANCE = 64f, DISTANCE_STEP = 2f;
+	private static final float MIN_DISTANCE = 0f, MAX_DISTANCE = 256f, DISTANCE_STEP = 2f;
 	/** Шаги правки маркером: угол (градусы) и длина (блоки) идут парами, от мелкого к крупному. По умолчанию {@link #DEFAULT_STEP} — прежние 30° и 2 блока. */
 	private static final float[] ANGLE_STEPS = { 5f, 15f, 30f, 45f, 90f };
 	private static final float[] LENGTH_STEPS = { 0.5f, 1f, 2f, 5f, 10f };
@@ -47,14 +52,63 @@ public class LauncherEntity extends FireMarkerEntity {
 	private static final Map<java.util.UUID, Integer> STEPS = new HashMap<>();
 	/** Тяжесть и сопротивление живого тела за тик: по вертикали и по горизонтали в воздухе. */
 	private static final double GRAVITY = 0.08, DRAG_Y = 0.98, DRAG_XZ = 0.91;
+	/**
+	 * Жерло только задаёт начальную скорость: дальше тело летит по инерции, как после тарзанки (теряет {@code INERTIA_LOSS} горизонтали за тик вместо ванильных 9 %),
+	 * а нажатые в полёте клавиши копятся в скорость — можно доворачивать, долетать дальше или ближе, весь полёт.
+	 */
+	private static final double INERTIA_LOSS = RopeEntity.SWING_LOSS;
 	private static final int MAX_FLIGHT = 400, SMOKE_INTERVAL = 3;
 
 	private static final EntityDataAccessor<Float> YAW = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> DISTANCE = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.FLOAT);
 	private static final EntityDataAccessor<Float> HEIGHT = SynchedEntityData.defineId(LauncherEntity.class, EntityDataSerializers.FLOAT);
 
-	/** Кто сейчас летит от этого жерла и его горизонтальная скорость. У тел, которых ведёт клиент, на сервере здесь ноль: важно только, что они ещё не сели. */
-	private final Map<LivingEntity, Vec3> flying = new HashMap<>();
+	/**
+	 * Кто сейчас летит из жерла. Полёт ведёт не тик жерла, а тик мира ({@link #tickFlights}): жерло, от которого тело улетело дальше дальности обновления
+	 * сущностей, не тикает, и с ним пропадала инерция (журнал полёта 2026-11-20: в ~115 блоках от устья вулкана). По тождеству и отдельно для клиента и сервера:
+	 * в одиночной игре статика общая, а {@code Entity.equals} сравнивает номера. Жерла можно ставить цепочкой: бросок другим жерлом забирает тело у прежнего;
+	 * только что брошенное ({@link #HANDOFF_TICKS}) другие жерла не ловят, поэтому несколько жерл рядом не перебрасывают тело друг за другом.
+	 */
+	private static final class Flight {
+		final LauncherEntity launcher;
+		final long time;
+		/** Сервер лишь следит за телом, которое движет клиент игрока (перехват, конец полёта), скорость не трогает. */
+		final boolean watchOnly;
+		/** Инерция держится; после удара о стену — обычное падение. */
+		boolean inertia = true;
+
+		Flight(LauncherEntity launcher, long time, boolean watchOnly) {
+			this.launcher = launcher;
+			this.time = time;
+			this.watchOnly = watchOnly;
+		}
+	}
+	private static final Map<LivingEntity, Flight> CLIENT_FLIGHTS = new java.util.IdentityHashMap<>(), SERVER_FLIGHTS = new java.util.IdentityHashMap<>();
+	private static final int HANDOFF_TICKS = 10;
+
+	private static Map<LivingEntity, Flight> flights(Level level) {
+		return level.isClientSide() ? CLIENT_FLIGHTS : SERVER_FLIGHTS;
+	}
+
+	/** Отладочный журнал полёта (ставит клиент для своего тела; на сервере пусто): тело, событие. */
+	public static volatile java.util.function.BiConsumer<LivingEntity, String> debug;
+
+	private void debug(LivingEntity e, String event) {
+		var d = debug;
+		if (d != null && level().isClientSide()) d.accept(e, String.format(java.util.Locale.ROOT, "%s [жерло %.1f %.1f %.1f курс %.1f дальн %.1f выс %.1f]", event, getX(), getY(), getZ(), yaw(), distance(), height()));
+	}
+
+	/** Жерло, которое сейчас ведёт тело (на стороне этого тела), или null. */
+	public static LauncherEntity ownerOf(LivingEntity e) {
+		Flight f = flights(e.level()).get(e);
+		return f == null ? null : f.launcher;
+	}
+
+	/** Держится ли у тела инерция полёта (false — не летит или после удара о стену). */
+	public static boolean keepsInertia(LivingEntity e) {
+		Flight f = flights(e.level()).get(e);
+		return f != null && f.inertia;
+	}
 
 	public LauncherEntity(EntityType<? extends LauncherEntity> type, Level level) {
 		super(type, level);
@@ -96,50 +150,95 @@ public class LauncherEntity extends FireMarkerEntity {
 		return new Vec3(-Math.sin(r), 0, Math.cos(r));
 	}
 
-	/** Высота, на которую поднимется тело со скоростью {@code vy}. */
-	private static double apex(double vy) {
+	/**
+	 * Как тело одного вида летит за тик: из скорости (по горизонтали — одна ось) сдвиг {@code [0], [1]} и скорость на следующий тик {@code [2], [3]}.
+	 * У каждого вида свои тяжесть, сопротивление и порядок шагов, поэтому бросок считается по нему, чтобы все падали в одну точку.
+	 */
+	private interface Motion {
+		double[] step(double vx, double vy);
+	}
+
+	/** Живое: по вертикали ваниль, горизонталь — инерция с потерей {@link #INERTIA_LOSS} ({@link #keepFlying}). */
+	private static final Motion LIVING = (vx, vy) -> new double[] { vx, vy, vx * (1 - INERTIA_LOSS), (vy - GRAVITY) * DRAG_Y };
+	/** Мяч ({@code BallEntity.simulate}): тяжесть, сдвиг, потом сопротивление. */
+	private static final Motion BALL = (vx, vy) -> {
+		double y = vy - BallEntity.GRAVITY;
+		return new double[] { vx, y, vx * BallEntity.AIR_DRAG, y * BallEntity.AIR_DRAG };
+	};
+	/** Плот в воздухе ({@code RaftEntity.simulate}): тяжесть с пределом, потеря по горизонтали, потом сдвиг. */
+	private static final Motion RAFT = (vx, vy) -> {
+		double x = vx * (1 - RaftEntity.AIR_LOSS), y = Math.max(vy - RaftEntity.FALL, -RaftEntity.MAX_FALL);
+		return new double[] { x, y, x, y };
+	};
+	/** Свободный конец верёвки ({@code RopeEntity.tickFree}): тяжесть и потеря, потом сдвиг; дальше длины верёвка не пустит. */
+	private static final Motion ROPE = (vx, vy) -> {
+		double k = 1 - RopeEntity.SWING_LOSS, x = vx * k, y = (vy - RopeEntity.GRAVITY) * k;
+		return new double[] { x, y, x, y };
+	};
+
+	/** Высота, на которую поднимется тело вида m со скоростью {@code vy}. */
+	private static double apex(Motion m, double vy) {
 		double y = 0;
-		while (vy > 0) {
-			y += vy;
-			vy = (vy - GRAVITY) * DRAG_Y;
+		for (int t = 0; t < MAX_FLIGHT; t++) {
+			double[] s = m.step(0, vy);
+			if (s[1] <= 0) break;
+			y += s[1];
+			vy = s[3];
 		}
 		return y;
 	}
 
-	/** Начальная скорость вверх для заданной высоты. */
-	public static double launchSpeed(double height) {
+	/** Начальная скорость вверх, с которой тело вида m поднимется на height. */
+	private static double launchSpeed(Motion m, double height) {
 		double low = 0, high = 16;
 		for (int i = 0; i < 40; i++) {
 			double mid = (low + high) / 2;
-			if (apex(mid) < height) low = mid;
+			if (apex(m, mid) < height) low = mid;
 			else high = mid;
 		}
 		return high;
 	}
 
-	/** Сколько тиков тело летит, пока не вернётся на высоту жерла. */
-	public static int flightTicks(double vy) {
-		double y = 0;
+	/** Путь по горизонтали при начальной скорости 1 до возврата на высоту жерла: начальная скорость для distance — distance / путь. */
+	private static double flatPath(Motion m, double vy) {
+		double x = 0, y = 0, vx = 1;
 		for (int t = 1; t < MAX_FLIGHT; t++) {
-			y += vy;
-			vy = (vy - GRAVITY) * DRAG_Y;
-			if (y <= 0 && t > 1) return t;
+			double[] s = m.step(vx, vy);
+			x += s[0];
+			y += s[1];
+			vx = s[2];
+			vy = s[3];
+			if (y <= 0 && t > 1) break;
 		}
-		return MAX_FLIGHT;
+		return x;
 	}
 
-	/** Точки дуги относительно жерла: для показа с маркером в руке. */
+	/** Скорость броска тела вида m: поднимется на {@link #height}, упадёт через {@link #distance} по курсу. */
+	private Vec3 velocity(Motion m) {
+		double vy = launchSpeed(m, height()), path = flatPath(m, vy);
+		Vec3 flat = course().scale(path > 0 ? distance() / path : 0);
+		return new Vec3(flat.x, vy, flat.z);
+	}
+
+	/** Начальная скорость вверх живого тела для заданной высоты. */
+	public static double launchSpeed(double height) {
+		return launchSpeed(LIVING, height);
+	}
+
+	/** Точки дуги относительно жерла (без нажатых клавиш): для показа с маркером в руке. */
 	public List<Vec3> arc() {
-		double vy = launchSpeed(height());
-		int flight = flightTicks(vy);
-		Vec3 step = course().scale(distance() / flight);
+		Vec3 v = velocity(LIVING), dir = course();
+		double vx = v.horizontalDistance(), vy = v.y;
 		List<Vec3> out = new ArrayList<>();
 		Vec3 at = Vec3.ZERO;
 		out.add(at);
-		for (int t = 0; t < flight; t++) {
-			at = at.add(step.x, vy, step.z);
-			vy = (vy - GRAVITY) * DRAG_Y;
+		for (int t = 1; t < MAX_FLIGHT; t++) {
+			double[] s = LIVING.step(vx, vy);
+			at = at.add(dir.x * s[0], s[1], dir.z * s[0]);
+			vx = s[2];
+			vy = s[3];
 			out.add(at);
+			if (at.y <= 0 && t > 1) break;
 		}
 		return out;
 	}
@@ -148,9 +247,40 @@ public class LauncherEntity extends FireMarkerEntity {
 	public void tick() {
 		super.tick();
 		if (level().isClientSide() && this.tickCount % SMOKE_INTERVAL == 0) smoke();
-		keepFlying();
 		AABB vent = new AABB(getX() - 0.5, getY(), getZ() - 0.5, getX() + 0.5, getY() + 1, getZ() + 0.5);
 		for (Entity e : level().getEntities(this, vent, this::canLaunch)) launch((LivingEntity) e);
+		if (!level().isClientSide()) launchThings(vent);
+	}
+
+	/** Когда бросили неживое (время мира): оно ещё несколько тиков в жерле, бросать его снова не надо. */
+	private final Map<Entity, Long> thrown = new HashMap<>();
+	private static final int THROW_COOLDOWN = 20;
+
+	/**
+	 * Неживое: мяч, плот, свободный конец верёвки (сервер; плот рассылает бросок клиентам сам, мяч и верёвку двигает сервер). Шар держит
+	 * высоту сам, брёвна идут по пути, маркеры — неподвижные инструменты: их не бросает.
+	 */
+	private void launchThings(AABB vent) {
+		long now = level().getGameTime();
+		this.thrown.values().removeIf(t -> now - t > THROW_COOLDOWN);
+		boolean any = false;
+		for (BallEntity ball : level().getEntitiesOfClass(BallEntity.class, vent, b -> !this.thrown.containsKey(b))) {
+			ball.launch(velocity(BALL));
+			this.thrown.put(ball, now);
+			any = true;
+		}
+		for (RopeEntity rope : level().getEntitiesOfClass(RopeEntity.class, vent, r -> r.mode() == RopeEntity.FREE && !this.thrown.containsKey(r))) {
+			rope.setDeltaMovement(velocity(ROPE));
+			this.thrown.put(rope, now);
+			any = true;
+		}
+		for (RaftEntity raft : RaftEntity.ALL) {
+			if (raft.level() != level() || raft.isRemoved() || raft.destroyed() || raft instanceof BalloonEntity || raft instanceof LogRaftEntity || this.thrown.containsKey(raft) || !raft.touches(vent)) continue;
+			raft.fling(velocity(RAFT));
+			this.thrown.put(raft, now);
+			any = true;
+		}
+		if (any) level().playSound(null, getX(), getY(), getZ(), SoundEvents.BREEZE_JUMP, SoundSource.BLOCKS, 1f, 1f);
 	}
 
 	private void smoke() {
@@ -164,7 +294,9 @@ public class LauncherEntity extends FireMarkerEntity {
 	}
 
 	private boolean canLaunch(Entity e) {
-		if (!(e instanceof LivingEntity living) || this.flying.containsKey(living) || e.noPhysics || e.isSpectator() || e.isPassenger()) return false;
+		if (!(e instanceof LivingEntity living) || e.noPhysics || e.isSpectator() || e.isPassenger()) return false;
+		Flight f = flights(level()).get(living);
+		if (f != null && (f.launcher == this || level().getGameTime() - f.time < HANDOFF_TICKS)) return false;
 		if (!level().isClientSide()) return true;
 		// на клиенте только своё тело: чужие придут пакетами
 		return e instanceof Player player ? player.isLocalPlayer() : e.getControllingPassenger() instanceof Player rider && rider.isLocalPlayer();
@@ -179,42 +311,52 @@ public class LauncherEntity extends FireMarkerEntity {
 	private void launch(LivingEntity e) {
 		if (holdsOrFlies(e)) return;
 		boolean server = !level().isClientSide();
+		Flight previous = flights(level()).put(e, new Flight(this, level().getGameTime(), server && clientDriven(e)));
+		if (previous != null && previous.launcher != this) debug(e, "ПЕРЕХВАТ у прежнего жерла");
+		// падение считается от броска: на подъёме оно не копится, с вершины — как обычно, и посадка мимо воды бьёт за всю высоту
+		e.resetFallDistance();
+		if (e.getControllingPassenger() instanceof Player rider) rider.resetFallDistance();
 		if (server && clientDriven(e)) {
-			this.flying.put(e, Vec3.ZERO);
 			level().playSound(null, getX(), getY(), getZ(), SoundEvents.BREEZE_JUMP, SoundSource.BLOCKS, 1f, 1f);
 			return;
 		}
-		double vy = launchSpeed(height());
-		Vec3 flat = course().scale(distance() / flightTicks(vy));
+		Vec3 v = velocity(LIVING);
 		e.setOnGround(false);
-		e.setDeltaMovement(flat.x, vy, flat.z);
-		e.resetFallDistance();
+		e.setDeltaMovement(v);
 		if (server) {
 			e.hurtMarked = true;
 			level().playSound(null, getX(), getY(), getZ(), SoundEvents.BREEZE_JUMP, SoundSource.BLOCKS, 1f, 1f);
 		}
-		this.flying.put(e, flat);
+		debug(e, String.format(java.util.Locale.ROOT, "БРОСОК скорость %.3f %.3f %.3f", v.x, v.y, v.z));
 	}
 
-	/** Возвращает то, что съело сопротивление воздуха, и сбрасывает высоту падения, пока тело не село. */
-	private void keepFlying() {
-		Iterator<Map.Entry<LivingEntity, Vec3>> it = this.flying.entrySet().iterator();
+	/**
+	 * Тик мира (сервер — {@code END_LEVEL_TICK}, клиент — свой): возвращает телам в полёте то, что съело сопротивление воздуха (инерция). Высоту падения
+	 * не сбрасывает (с 2026-11-20, по просьбе: «должен чуть управлять полётом, чтобы попасть в озеро»): урон от посадки — как при обычном падении с вершины.
+	 */
+	public static void tickFlights(Level level) {
+		Iterator<Map.Entry<LivingEntity, Flight>> it = flights(level).entrySet().iterator();
 		while (it.hasNext()) {
-			Map.Entry<LivingEntity, Vec3> entry = it.next();
+			Map.Entry<LivingEntity, Flight> entry = it.next();
 			LivingEntity e = entry.getKey();
-			e.resetFallDistance();
-			if (e.getControllingPassenger() instanceof Player rider) rider.resetFallDistance();
+			Flight f = entry.getValue();
+			if (e.level() != level && !e.isRemoved()) continue;
 			boolean ability = e instanceof CharacterEntity character && character.isAbilityActive();
 			if (e.isRemoved() || e.onGround() || e.isInWater() || e.isPassenger() || e.isFallFlying() || ability || holdsOrFlies(e) || (e.horizontalCollision && !clientDriven(e))) {
+				f.launcher.debug(e, "КОНЕЦ: " + (e.isRemoved() ? "удалено" : e.onGround() ? "на земле" : e.isInWater() ? "в воде" : e.isPassenger() ? "пассажир" : e.isFallFlying() ? "элитры" : ability ? "способность" : holdsOrFlies(e) ? "верёвка или полёт" : "стена"));
 				it.remove();
 				continue;
 			}
+			if (f.watchOnly || !f.inertia) continue;
 			if (e.horizontalCollision) {
-				// упёрлось в стену: дальше обычное падение, но без урона, пока не сядет
-				entry.setValue(Vec3.ZERO);
+				// упёрлось в стену: дальше обычное падение
+				f.launcher.debug(e, "СТЕНА: инерция снята, дальше обычное падение");
+				f.inertia = false;
 				continue;
 			}
-			e.setDeltaMovement(e.getDeltaMovement().add(entry.getValue().scale(1 - DRAG_XZ)));
+			Vec3 v = e.getDeltaMovement();
+			double k = (1 - INERTIA_LOSS) / DRAG_XZ;
+			e.setDeltaMovement(v.x * k, v.y, v.z * k);
 		}
 	}
 

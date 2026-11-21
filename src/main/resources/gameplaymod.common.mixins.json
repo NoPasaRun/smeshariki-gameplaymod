@@ -10,6 +10,7 @@
 		"EntityCollisionContextMixin",
 		"EntityFireMixin",
 		"EntityGetterMixin",
+		"EntityRaftPushMixin",
 		"EntitySlopeMixin",
 		"LivingEntitySlopeMixin",
 		"LivingEntityVineMixin",
