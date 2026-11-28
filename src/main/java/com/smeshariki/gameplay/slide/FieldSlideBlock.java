@@ -33,7 +33,8 @@ public class FieldSlideBlock extends SlideBlock {
 	private static final double MAX_TANGENT = 0.8;
 	/** Опорные наклоны: тангенс, прибавка скорости, предел скорости. Между ними — по прямой; 11,25° и 22,5° те же, что у обычных скатов. */
 	private static final double[][] SPEEDS = {{0, 0, 0.96}, {0.19891237, 0.075, 0.96}, {0.41421356, 0.105, 1.2}, {1, 0.18, 1.65}};
-	private static final Map<BlockState, VoxelShape> SHAPES = new ConcurrentHashMap<>();
+	/** Формы по высотам углов в 1/16 блока (по байту на угол), общие для всех блоков-полей. */
+	private static final Map<Integer, VoxelShape> SHAPES = new ConcurrentHashMap<>();
 
 	public FieldSlideBlock(Properties properties) {
 		super(properties);
@@ -187,23 +188,41 @@ public class FieldSlideBlock extends SlideBlock {
 		return MAX_TANGENT;
 	}
 
-	/** Форма для рамки выделения и камеры: столбики 4×4 под поверхностью; собирается при первом обращении, состояний много. */
+	/**
+	 * Форма для рамки выделения и камеры: столбики 4×4 под поверхностью. У шести таких блоков ~64 тыс. состояний, и кэш форм всех состояний при запуске
+	 * стоил ~20 с, поэтому блоки регистрируются с {@code dynamicShape()} ({@link Slides}): форма строится при первом обращении к состоянию, зависит только
+	 * от углов (общая для льда, камня и земли) и склеивается за одно упрощение, а не за 16.
+	 */
 	@Override
 	protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		return SHAPES.computeIfAbsent(state, s -> {
-			double[] c = corners(s);
-			VoxelShape shape = Shapes.empty();
+		double[] c = corners(state);
+		int key = 0;
+		for (double h : c) key = key << 8 | (int) Math.round(h * 16);
+		return SHAPES.computeIfAbsent(key, k -> {
+			VoxelShape[] columns = new VoxelShape[16];
 			for (int i = 0; i < 4; i++)
 				for (int j = 0; j < 4; j++)
-					shape = Shapes.or(shape, Shapes.box(i / 4.0, 0, j / 4.0, (i + 1) / 4.0, Math.max(bilinear(c, (i + 0.5) / 4, (j + 0.5) / 4), 1 / 16.0), (j + 1) / 4.0));
-			return shape;
+					columns[i * 4 + j] = Shapes.box(i / 4.0, 0, j / 4.0, (i + 1) / 4.0, Math.max(bilinear(c, (i + 0.5) / 4, (j + 0.5) / 4), 1 / 16.0), (j + 1) / 4.0);
+			return Shapes.or(columns[0], java.util.Arrays.copyOfRange(columns, 1, 16));
 		});
 	}
 
 	/** Основание под поверхностью, на случай тел, которые скаты не замечают; поверхность считает {@link SlopeSurface}. */
 	@Override
 	protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-		int p = state.getValue(PART);
-		return p == 0 ? Shapes.empty() : Shapes.box(0, 0, 0, 1, p / 16.0, 1);
+		return BASES[state.getValue(PART)];
+	}
+
+	/** Основания по {@code part}: без кэша состояний (dynamicShape) форма столкновения запрашивается на каждое касание. */
+	private static final VoxelShape[] BASES = new VoxelShape[16];
+	static {
+		BASES[0] = Shapes.empty();
+		for (int p = 1; p < 16; p++) BASES[p] = Shapes.box(0, 0, 0, 1, p / 16.0, 1);
+	}
+
+	/** Как у ванили (форма не полный куб, жидкости нет), но без построения формы при запуске: столбики никогда не заполняют клетку целиком. */
+	@Override
+	protected boolean propagatesSkylightDown(BlockState state) {
+		return true;
 	}
 }

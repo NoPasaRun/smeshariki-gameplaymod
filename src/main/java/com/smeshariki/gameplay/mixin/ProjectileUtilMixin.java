@@ -19,6 +19,7 @@ public abstract class ProjectileUtilMixin {
 	@Redirect(method = { "getHitResult", "getEntityHitResult", "getManyEntityHitResult", "getHitEntitiesAlong" },
 			at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getBoundingBox()Lnet/minecraft/world/phys/AABB;"))
 	private static AABB gameplaymod$hurtBox(Entity entity) {
+		if (entity instanceof com.smeshariki.gameplay.mob.SandwichEntity sandwich) return sandwich.hurtBox();
 		return entity instanceof CharacterEntity character ? character.hurtBox() : entity.getBoundingBox();
 	}
 }

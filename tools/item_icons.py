@@ -147,6 +147,24 @@ token('lava_wave_marker', hexc('#c9461c'), [
     "#..#....",
     "#...#...",
     "########"], glyph_color=(255, 214, 92, 255))
+token('water_wave_marker', hexc('#2a5fb8'), [
+    "........",
+    "...####.",
+    "..#....#",
+    ".#..##..",
+    ".#.#....",
+    "#..#....",
+    "#...#...",
+    "########"], glyph_color=(176, 226, 255, 255))
+token('snow_wave_marker', hexc('#7f9bb5'), [
+    "........",
+    "...####.",
+    "..#....#",
+    ".#..##..",
+    ".#.#....",
+    "#..#....",
+    "#...#...",
+    "########"])
 token('smoke_marker', hexc('#7d7f86'), [
     "....##..",
     "...#..#.",
@@ -197,7 +215,8 @@ def coil(name, base, handle=None):
 
 coil('tarzan_rope', hexc('#4f9a3c'))
 coil('calm_rope', hexc('#a3243b'))
-coil('pull_rope', hexc('#b08a58'))
+coil('pull_rope', hexc('#e2b92e'))
+coil('tow_rope', hexc('#3b78d8'))
 coil('balloon_lift_rope', hexc('#b08a58'), handle=hexc('#3b78d8'))
 coil('balloon_helm_rope', hexc('#b08a58'), handle=hexc('#d23c32'))
 
@@ -256,4 +275,17 @@ for k in range(5):
         if (x + .5 - 8) ** 2 + (y + .5 - 8) ** 2 <= 5.6 ** 2: ic.set(x, y, dark[3] if y > 8 else dark[2])
 ic.set(5, 4, (255, 255, 255, 255)); ic.set(4, 5, (255, 255, 255, 255))
 ic.outline(-0.5); ic.save('ball')
+# ---------------------------------------------------------------- подвес ткани: деревянная перекладина и полотнище на ветру
+ic = Icon()
+cloth = ramp(hexc('#c8443c'))
+for x in range(3, 13):
+    wave = math.sin((x - 3) * 0.8)
+    for y in range(4, 13 + (1 if x % 3 == 0 else 0)):
+        v = -0.35 * math.cos((x - 3) * 0.8) + (0.25 if y < 7 else 0) - 0.03 * (y - 4)
+        ic.set(x + (1 if y > 10 and wave > 0.3 else 0), y, tone(cloth, v))
+wood = ramp(hexc('#9a6a3a'))
+for x in range(1, 15): ic.set(x, 3, wood[1] if x % 4 else wood[3])
+for x in range(1, 15): ic.set(x, 2, wood[0] if 2 < x < 13 else None)
+ic.set(1, 2, wood[2]); ic.set(14, 2, wood[2])
+ic.outline(); ic.save('cloth_hanger')
 print('ok')

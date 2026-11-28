@@ -152,6 +152,19 @@ public final class GameplayMechanics {
 				com.smeshariki.gameplay.lava.LavaWaves.release(server, "");
 			}
 		});
+		// Бутерброд выбирает целью случайного участника в своей локации (place — заодно назначить её); заражение и гибель — события
+		Mechanics.registerAction(id("sandwich_hunt"), new Mechanics.Action() {
+			@Override
+			public void run(MinecraftServer server, List<ServerPlayer> participants, Mechanics.Params params) {
+				String place = params.string("place", "");
+				if (!place.isEmpty()) com.smeshariki.gameplay.mob.UniqueSandwich.setPlace(server, place);
+				List<ServerPlayer> order = new java.util.ArrayList<>(participants);
+				java.util.Collections.shuffle(order);
+				for (ServerPlayer player : order) if (com.smeshariki.gameplay.mob.UniqueSandwich.hunt(server, player)) return;
+			}
+		});
+		Mechanics.describeEvent(com.smeshariki.gameplay.mob.SandwichEntity.EVENT_INFECTED, null);
+		Mechanics.describeEvent(com.smeshariki.gameplay.mob.SandwichEntity.EVENT_DEAD, null);
 		Mechanics.describeEvent(Balloons.EVENT_STRANDED, "группа шара");
 		Mechanics.describeEvent(Balloons.EVENT_LIFTED, "группа шара");
 		conditions();

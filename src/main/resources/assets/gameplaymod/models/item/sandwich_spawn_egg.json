@@ -1,0 +1,6 @@
+{
+	"parent": "minecraft:item/generated",
+	"textures": {
+		"layer0": "gameplaymod:item/sandwich_spawn_egg"
+	}
+}

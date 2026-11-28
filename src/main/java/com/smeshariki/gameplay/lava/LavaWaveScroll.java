@@ -29,7 +29,7 @@ public record LavaWaveScroll(int entityId, int steps) implements CustomPacketPay
 		PayloadTypeRegistry.serverboundPlay().register(TYPE, CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(TYPE, (msg, ctx) -> {
 			ServerPlayer player = ctx.player();
-			if (!player.getMainHandItem().is(LavaWaves.ITEM) || msg.steps() == 0 || Math.abs(msg.steps()) > 8) return;
+			if (!LavaWaves.isMarker(player.getMainHandItem()) || msg.steps() == 0 || Math.abs(msg.steps()) > 8) return;
 			if (!(player.level().getEntity(msg.entityId()) instanceof LavaWaveEntity wave) || wave.position().distanceTo(player.getEyePosition()) > REACH) return;
 			wave.setHalfWidth(wave.halfWidth() + msg.steps() * STEP);
 			wave.announceWidth(player);

@@ -1,5 +1,7 @@
 package com.smeshariki.gameplay.wind;
 
+import java.util.List;
+
 import com.smeshariki.gameplay.GameplayMod;
 
 import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
@@ -54,9 +56,19 @@ public final class Winds {
 	 * самого сильного (доля от полной, {@link WindMarkerEntity#strength}). Только для сервера.
 	 */
 	public static Vec3 at(Level level, AABB box) {
+		return at(WindMarkerEntity.SERVER_MARKERS, level, box);
+	}
+
+	/** Маркеры, чья зона может задеть ящик; на обеих сторонах (маркеры видит и клиент). */
+	public static List<WindMarkerEntity> near(Level level, AABB box) {
+		return level.getEntitiesOfClass(WindMarkerEntity.class, box.inflate(WindMarkerEntity.RADIUS + 1));
+	}
+
+	/** То же, что {@link #at(Level, AABB)}, но по заранее найденным маркерам ({@link #near}): работает и у клиента. */
+	public static Vec3 at(List<WindMarkerEntity> markers, Level level, AABB box) {
 		Vec3 sum = Vec3.ZERO;
 		double max = 0;
-		for (WindMarkerEntity m : WindMarkerEntity.SERVER_MARKERS) {
+		for (WindMarkerEntity m : markers) {
 			if (m.level() != level || m.isRemoved()) continue;
 			double k = m.strength(box);
 			if (k <= 0) continue;

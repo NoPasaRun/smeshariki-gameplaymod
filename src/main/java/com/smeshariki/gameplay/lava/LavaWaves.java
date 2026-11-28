@@ -17,7 +17,7 @@ import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 
-/** Регистрация волны лавы, запуск по группе и событие её конца, см. {@link LavaWaveEntity}. */
+/** Регистрация волны (лава, вода, снег), запуск по группе и событие её конца, см. {@link LavaWaveEntity}. */
 public final class LavaWaves {
 	/** Волна маркера кончилась: гребень обрушился и слой лавы залит. {@code group} — его {@code Group} (пустая у маркера без группы). Только сервер. */
 	@FunctionalInterface
@@ -84,7 +84,30 @@ public final class LavaWaves {
 	}
 
 	public static EntityType<LavaWaveEntity> TYPE;
-	public static Item ITEM;
+	/** Маркеры волны лавы, воды и снега: ставят одну сущность, вид — по блоку под ней, предмет задаёт вид, только если материала там нет. */
+	public static Item ITEM, WATER_ITEM, SNOW_ITEM;
+
+	public static Item item(WaveKind kind) {
+		return switch (kind) {
+			case LAVA -> ITEM;
+			case WATER -> WATER_ITEM;
+			case SNOW -> SNOW_ITEM;
+		};
+	}
+
+	/** Любой из трёх маркеров волны. */
+	public static boolean isMarker(net.minecraft.world.item.ItemStack stack) {
+		return stack.is(ITEM) || stack.is(WATER_ITEM) || stack.is(SNOW_ITEM);
+	}
+
+	private static Item marker(String id, WaveKind kind) {
+		ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, id));
+		return Registry.register(BuiltInRegistries.ITEM, key, new FireMarkerItem(new Item.Properties().setId(key), level -> {
+			LavaWaveEntity wave = new LavaWaveEntity(TYPE, level);
+			wave.setKind(kind);
+			return wave;
+		}));
+	}
 
 	private LavaWaves() {
 	}
@@ -104,9 +127,14 @@ public final class LavaWaves {
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents.ENTITY_UNLOAD.register((entity, level) -> {
 			if (entity instanceof LavaWaveEntity w) LavaWaveEntity.ALL.removeIf(x -> x == w);
 		});
-		ResourceKey<Item> itemKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "lava_wave_marker"));
-		ITEM = Registry.register(BuiltInRegistries.ITEM, itemKey, new FireMarkerItem(new Item.Properties().setId(itemKey), level -> new LavaWaveEntity(TYPE, level)));
+		ITEM = marker("lava_wave_marker", WaveKind.LAVA);
+		WATER_ITEM = marker("water_wave_marker", WaveKind.WATER);
+		SNOW_ITEM = marker("snow_wave_marker", WaveKind.SNOW);
 		ResourceKey<CreativeModeTab> tab = ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("tools_and_utilities"));
-		CreativeModeTabEvents.modifyOutputEvent(tab).register(output -> output.accept(ITEM));
+		CreativeModeTabEvents.modifyOutputEvent(tab).register(output -> {
+			output.accept(ITEM);
+			output.accept(WATER_ITEM);
+			output.accept(SNOW_ITEM);
+		});
 	}
 }

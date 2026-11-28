@@ -23,12 +23,14 @@ public class GameplayMod implements ModInitializer {
 		com.smeshariki.gameplay.raft.Logs.init();
 		Winds.init();
 		Balloons.init();
+		com.smeshariki.gameplay.cloth.Cloths.init();
 		Slides.init();
 		LeafPhase.init();
 		Barrages.init();
 		com.smeshariki.gameplay.launcher.Launchers.init();
 		com.smeshariki.gameplay.smoke.Smokes.init();
 		com.smeshariki.gameplay.ball.Balls.init();
+		com.smeshariki.gameplay.mob.Mobs.init();
 		com.smeshariki.gameplay.lava.LavaTides.init();
 		com.smeshariki.gameplay.lava.LavaWaves.init();
 		com.smeshariki.gameplay.character.AutorunControl.init();

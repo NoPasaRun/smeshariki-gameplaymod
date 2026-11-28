@@ -45,6 +45,11 @@ public final class CharacterRenderer extends EntityRenderer<CharacterEntity, Cha
 		previewHead = head;
 	}
 
+	/** Сейчас рисуется превью в окне. */
+	static boolean inPreview() {
+		return preview;
+	}
+
 	static void endPreview() {
 		preview = false;
 	}

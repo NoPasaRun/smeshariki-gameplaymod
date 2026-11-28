@@ -60,6 +60,7 @@ public final class ItemMechanics {
 	private static Item ropeItem(RopeEntity rope) {
 		if (rope instanceof CalmRopeEntity) return Ropes.CALM_ITEM;
 		if (rope instanceof PullRopeEntity) return Ropes.PULL_ITEM;
+		if (rope instanceof com.smeshariki.gameplay.rope.TowRopeEntity) return Ropes.TOW_ITEM;
 		if (rope instanceof BalloonRopeEntity balloon) return balloon.kind() == BalloonRopeItem.Kind.LIFT ? Balloons.LIFT_ROPE : Balloons.HELM_ROPE;
 		return Ropes.ITEM;
 	}

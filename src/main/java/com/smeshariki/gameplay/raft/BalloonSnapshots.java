@@ -152,7 +152,7 @@ public final class BalloonSnapshots {
 	/** Верёвка ли это (тарзанка, спокойная, тянущая): такие ставятся последними. */
 	private static boolean isRope(CompoundTag tag) {
 		String id = tag.getStringOr("id", "");
-		return id.equals("gameplaymod:tarzan_rope") || id.equals("gameplaymod:calm_rope") || id.equals("gameplaymod:pull_rope");
+		return id.equals("gameplaymod:tarzan_rope") || id.equals("gameplaymod:calm_rope") || id.equals("gameplaymod:pull_rope") || id.equals("gameplaymod:tow_rope");
 	}
 	private static boolean registered;
 

@@ -26,6 +26,8 @@ public class RopeItem extends Item {
 		Player player = context.getPlayer();
 		if (player == null) return InteractionResult.PASS;
 		if (!context.getLevel().isClientSide()) {
+			// аркан: сущность перед блоком (предмет на земле, стрела в стене) важнее блока
+			if (Ropes.lasso(player, context.getLevel(), context.getHand(), context.getClickLocation().distanceTo(player.getEyePosition()) + 0.3)) return InteractionResult.SUCCESS;
 			Vec3 anchor = context.getClickLocation().add(Vec3.atLowerCornerOf(context.getClickedFace().getUnitVec3i()).scale(0.05));
 			RopeEntity rope = create(context.getLevel());
 			rope.setupAnchor(context.getClickedPos(), anchor, player);

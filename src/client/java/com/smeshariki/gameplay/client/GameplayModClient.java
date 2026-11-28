@@ -200,9 +200,11 @@ public class GameplayModClient implements ClientModInitializer {
 		CharacterRenderer.init();
 		RaftRenderer.init();
 		WindMarkerRenderer.init();
+		ClothRenderer.init();
 		FireMarkerRenderer.init();
 		SmokeParticle.init();
 		BallRenderer.init();
+		SandwichRenderer.init();
 		DeadzoneClient.init();
 		LauncherFlightLog.init();
 		ClientTickEvents.END_LEVEL_TICK.register(com.smeshariki.gameplay.launcher.LauncherEntity::tickFlights);

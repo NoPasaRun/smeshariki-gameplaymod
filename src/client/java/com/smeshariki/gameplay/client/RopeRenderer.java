@@ -26,7 +26,9 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 	/** Половина толщины верёвки, блоков. */
 	private static final float HALF_WIDTH = 0.07f;
 	private static final int COLOR_R = 0xB0, COLOR_G = 0x7A, COLOR_B = 0x3A;
-	private static final int PALE_R = 0xE6, PALE_G = 0xDC, PALE_B = 0xC0;
+	/** Верёвка для подтягивания — жёлтая, аркан — синий. */
+	private static final int PALE_R = 0xE8, PALE_G = 0xC2, PALE_B = 0x2E;
+	private static final int TOW_R = 0x3B, TOW_G = 0x78, TOW_B = 0xD8;
 	/** Обычная тарзанка (большой размах) — зеленоватая, без размаха — багровая. */
 	private static final int WIDE_R = 0x5E, WIDE_G = 0xA0, WIDE_B = 0x4A;
 	private static final int CALM_R = 0x9A, CALM_G = 0x24, CALM_B = 0x38;
@@ -40,6 +42,7 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 		EntityRendererRegistry.register(Ropes.TYPE, RopeRenderer::new);
 		EntityRendererRegistry.register(Ropes.CALM_TYPE, RopeRenderer::new);
 		EntityRendererRegistry.register(Ropes.PULL_TYPE, RopeRenderer::new);
+		EntityRendererRegistry.register(Ropes.TOW_TYPE, RopeRenderer::new);
 		EntityRendererRegistry.register(Balloons.ROPE_TYPE, RopeRenderer::new);
 	}
 
@@ -79,7 +82,7 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 		state.tail = entity.mode() == RopeEntity.HELD ? Math.max(0, entity.length() - state.arm) : 0;
 		state.toEnd = Vec3.ZERO;
 		state.pale = entity instanceof com.smeshariki.gameplay.rope.PullRopeEntity;
-		state.kind = entity.getClass() == RopeEntity.class ? 1 : entity instanceof com.smeshariki.gameplay.rope.CalmRopeEntity ? 2 : 0;
+		state.kind = entity.getClass() == RopeEntity.class ? 1 : entity instanceof com.smeshariki.gameplay.rope.CalmRopeEntity ? 2 : entity instanceof com.smeshariki.gameplay.rope.TowRopeEntity ? 3 : 0;
 		state.handle = entity instanceof BalloonRopeEntity rope ? (rope.kind() == BalloonRopeItem.Kind.LIFT ? 0x4F9BE8 : 0xE8603C) : -1;
 		if (entity.mode() == RopeEntity.HELD) {
 			Entity holder = entity.level().getEntity(entity.holderId());
@@ -150,7 +153,7 @@ public final class RopeRenderer extends EntityRenderer<RopeEntity, RopeRenderer.
 			Vec3 dir = cur.subtract(prev);
 			if (dir.lengthSqr() > 1e-8) {
 				int shade = i % 2 == 0 ? 255 : 205;
-				int br = pale ? PALE_R : kind == 1 ? WIDE_R : kind == 2 ? CALM_R : COLOR_R, bg = pale ? PALE_G : kind == 1 ? WIDE_G : kind == 2 ? CALM_G : COLOR_G, bb = pale ? PALE_B : kind == 1 ? WIDE_B : kind == 2 ? CALM_B : COLOR_B;
+				int br = pale ? PALE_R : kind == 1 ? WIDE_R : kind == 2 ? CALM_R : kind == 3 ? TOW_R : COLOR_R, bg = pale ? PALE_G : kind == 1 ? WIDE_G : kind == 2 ? CALM_G : kind == 3 ? TOW_G : COLOR_G, bb = pale ? PALE_B : kind == 1 ? WIDE_B : kind == 2 ? CALM_B : kind == 3 ? TOW_B : COLOR_B;
 				int r = br * shade / 255, g = bg * shade / 255, bl = bb * shade / 255;
 				Vec3 side1 = dir.cross(Math.abs(dir.y) > 0.99 * dir.length() ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0)).normalize().scale(HALF_WIDTH);
 				Vec3 side2 = dir.cross(side1).normalize().scale(HALF_WIDTH);

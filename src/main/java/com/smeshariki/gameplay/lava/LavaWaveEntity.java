@@ -3,7 +3,9 @@ package com.smeshariki.gameplay.lava;
 import com.smeshariki.gameplay.barrage.FireMarkerEntity;
 import com.smeshariki.gameplay.character.CharacterEntity;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import net.minecraft.core.BlockPos;
@@ -16,13 +18,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -32,7 +35,16 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Волна лавы: маркер у берега лавового озера. Маркер с группой {@code Group} запускает волну только по команде {@link LavaWaves#launch} (триггер LevelMod), а когда
+ * Волна лавы, воды или снега ({@link WaveKind}): вид задаёт блок под маркером (предметы трёх маркеров ставят одну и ту же сущность, предмет — только вид
+ * по умолчанию, если под маркером нет ни одного из материалов). Волна идёт по верху блоков своего вида и следует им вверх и вниз: каждый шаг пути
+ * ищет верх материала не выше {@link #CLIMB} и не ниже {@link #DROP} от прежнего ({@link #column}), поэтому вода и лава текут каскадами и водопадами,
+ * а лавина — по снежному склону; где материала нет (камень, берег), волны нет. Вода несёт тела по курсу, снег несёт и слегка ранит, лава поджигает.
+ * Обрушение у жидкостей поднимает озеро под маркером на {@code Rise} слоёв, у снега кладёт {@code Rise} слоёв снега там, где был гребень.
+ * <p>
+ * Сущность по-прежнему {@code gameplaymod:lava_wave} (лежит в сохранённых мирах), старые маркеры без поля {@code Kind} — лава. Дальше про лаву;
+ * у воды и снега то же самое.
+ * <p>
+ * Маркер у берега лавового озера. Маркер с группой {@code Group} запускает волну только по команде {@link LavaWaves#launch} (триггер LevelMod), а когда
  * она кончилась (обрушилась и слой лавы залит), сообщает {@link LavaWaves#FINISHED}: так уровень сам чередует волны с разных берегов. Маркер без группы волн не пускает
  * (с 2026-11-20; прежде пускал сам раз в {@code Interval} тиков) — сначала задать группу. От маркера по курсу {@code Yaw} идёт волна высотой {@code Height} со скоростью {@code Speed} блоков/с, на всю ширину озера (не дальше
  * {@code HalfWidth} в стороны, стены пещеры её обрезают). Пройдя {@code Length} блоков, она обрушивается и поднимает лаву озера на {@code Rise} слоёв (0 — не поднимает), не выше {@code PeakY}.
@@ -47,7 +59,18 @@ import net.minecraft.world.phys.Vec3;
 public class LavaWaveEntity extends FireMarkerEntity {
 	public static final float TURN = 30f;
 	/** Верх лавы-источника над низом клетки. */
-	public static final double LAVA_TOP = 8.0 / 9.0;
+	public static final double LAVA_TOP = WaveKind.FLUID_TOP;
+	/** Насколько выше и ниже прежнего верха материала волна ищет его на следующем блоке пути: подъём и спуск (водопад, склон) за блок. */
+	public static final int CLIMB = 2, DROP = 6;
+	/** Поперёк курса поиск шире на столько блоков высоты за блок от середины: склон может идти и вбок. */
+	private static final double SIDE_SLOPE = 0.5;
+	/** Через столько тиков путь и столбцы пересчитываются: под волной могли поставить или сломать блок, у клиента — догрузиться чанки. */
+	private static final int COLUMN_REFRESH = 40;
+	/** Вода и снег несут тело: доля разницы скорости вдоль курса за тик; подъём к верху волны (доля высоты за тик и предел). */
+	private static final double CARRY_GRIP = 0.25, CARRY_LIFT = 0.3, CARRY_LIFT_MAX = 0.35;
+	/** Лавина ранит раз в столько тиков на столько урона. */
+	private static final int SNOW_HURT_EVERY = 20;
+	private static final float SNOW_DAMAGE = 1f;
 	/** Сколько тиков гребень поднимается в начале и опадает при обрушении. */
 	public static final int RISE_TICKS = 20, CRASH_TICKS = 12;
 	private static final float MIN_LENGTH = 2f, MAX_LENGTH = 128f, LENGTH_STEP = 2f;
@@ -66,6 +89,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	/** Подъём за обрушение и предел лавы — копии полей {@code rise} и {@code peakY} для показа клиенту (маркер в руке). */
 	private static final EntityDataAccessor<Integer> RISE = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
 	private static final EntityDataAccessor<Integer> PEAK = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
+	/** Вид волны ({@link WaveKind#ordinal}). */
+	private static final EntityDataAccessor<Integer> KIND = SynchedEntityData.defineId(LavaWaveEntity.class, EntityDataSerializers.INT);
 	/** Наибольший подъём за одно обрушение (слоёв); 0 — волна лаву не поднимает. */
 	public static final int MAX_RISE = 16;
 
@@ -108,9 +133,20 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		builder.define(BASE, 0);
 		builder.define(RISE, 1);
 		builder.define(PEAK, Integer.MIN_VALUE);
+		builder.define(KIND, WaveKind.LAVA.ordinal());
 	}
 
 	// ---------------------------------------------------------------- параметры
+
+	public WaveKind kind() {
+		int i = this.entityData.get(KIND);
+		WaveKind[] all = WaveKind.values();
+		return i >= 0 && i < all.length ? all[i] : WaveKind.LAVA;
+	}
+
+	public void setKind(WaveKind kind) {
+		this.entityData.set(KIND, kind.ordinal());
+	}
 
 	public float yaw() {
 		return this.entityData.get(YAW);
@@ -146,9 +182,9 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		return this.entityData.get(START);
 	}
 
-	/** Высота поверхности лавы, от которой поднимается волна. */
+	/** Высота поверхности материала под маркером в начале волны (у снега — верх клетки). */
 	public double surfaceY() {
-		return base() + LAVA_TOP;
+		return base() + (kind().fluid() ? LAVA_TOP : 1.0);
 	}
 
 	/** Куда идёт волна. */
@@ -176,7 +212,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		return this.entityData.get(RISE);
 	}
 
-	/** Верхняя клетка лавы сейчас (маркер стоит над ней). */
+	/** Верхняя клетка материала сейчас (маркер стоит над ней). */
 	public int lavaTop() {
 		return getBlockY() - 1;
 	}
@@ -261,24 +297,110 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		return (x - getX()) * s.x + (z - getZ()) * s.z;
 	}
 
+	// ---------------------------------------------------------------- рельеф
+
+	/** Столбец волны: высота поверхности материала и сколько над ней места до первого твёрдого блока. {@link #NONE} — материала нет. */
+	public record Column(double surface, double room) {
+		public boolean exists() {
+			return !Double.isNaN(this.surface);
+		}
+	}
+
+	public static final Column NONE = new Column(Double.NaN, Double.NaN);
+
+	/** Верхние клетки материала по средней линии пути: индекс — блоков от маркера по курсу. */
+	private int[] profile;
+	private final Map<Long, Column> columns = new HashMap<>();
+	private long columnsKey = Long.MIN_VALUE;
+	private int columnsMade;
+
+	/** Путь и столбцы строятся заново, когда меняется волна (начало, уровень, курс, путь, вид, ширина) и раз в {@link #COLUMN_REFRESH} тиков. */
+	private void freshColumns() {
+		long key = start();
+		key = key * 31 + base();
+		key = key * 31 + Float.floatToIntBits(yaw());
+		key = key * 31 + Float.floatToIntBits(length());
+		key = key * 31 + Float.floatToIntBits(halfWidth());
+		key = key * 31 + kind().ordinal();
+		if (this.profile != null && key == this.columnsKey && this.tickCount - this.columnsMade <= COLUMN_REFRESH && this.tickCount >= this.columnsMade) return;
+		this.columnsKey = key;
+		this.columnsMade = this.tickCount;
+		this.columns.clear();
+		WaveKind kind = kind();
+		int n = Mth.ceil(length() + front()) + 2;
+		int[] p = new int[n + 1];
+		int y = base();
+		p[0] = y;
+		Vec3 c = course();
+		for (int i = 1; i <= n; i++) {
+			int found = topNear(kind, Mth.floor(getX() + c.x * i), Mth.floor(getZ() + c.z * i), y, CLIMB, DROP);
+			// камень посреди озера волну не останавливает: дальше ищем от прежней высоты
+			if (found != Integer.MIN_VALUE) y = found;
+			p[i] = y;
+		}
+		this.profile = p;
+	}
+
+	/** Верх материала по средней линии на пути {@code along} от маркера. */
+	private int nominal(double along) {
+		freshColumns();
+		return this.profile[(int) Math.clamp(Math.round(along), 0, this.profile.length - 1)];
+	}
+
+	/** Клетка — верх материала: сама его вида, над ней не он и не твёрдый блок. */
+	private boolean isTop(WaveKind kind, BlockPos.MutableBlockPos at, int x, int y, int z) {
+		Level level = level();
+		if (!kind.matches(level.getBlockState(at.set(x, y, z)))) return false;
+		BlockState above = level.getBlockState(at.set(x, y + 1, z));
+		return !kind.matches(above) && above.getCollisionShape(level, at).isEmpty();
+	}
+
+	/** Верхняя клетка материала в столбце, ближайшая к {@code y}: не выше {@code up} и не ниже {@code down}; MIN_VALUE — нет. */
+	private int topNear(WaveKind kind, int x, int z, int y, int up, int down) {
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		for (int d = 0; d <= Math.max(up, down); d++) {
+			if (d <= up && isTop(kind, at, x, y + d, z)) return y + d;
+			if (d > 0 && d <= down && isTop(kind, at, x, y - d, z)) return y - d;
+		}
+		return Integer.MIN_VALUE;
+	}
+
+	/** Поверхность материала у столбца (x, z) и место над ней; {@link #NONE}, если волне тут идти не по чему (берег, камень, другой материал). */
+	public Column column(int x, int z) {
+		freshColumns();
+		long key = ((long) x << 32) ^ (z & 0xFFFFFFFFL);
+		Column c = this.columns.get(key);
+		if (c == null) {
+			c = computeColumn(x, z);
+			this.columns.put(key, c);
+		}
+		return c;
+	}
+
+	private Column computeColumn(int x, int z) {
+		WaveKind kind = kind();
+		double cx = x + 0.5, cz = z + 0.5;
+		int slack = Mth.ceil(Math.abs(across(cx, cz)) * SIDE_SLOPE);
+		int y = topNear(kind, x, z, nominal(along(cx, cz)), CLIMB + slack, DROP + slack);
+		if (y == Integer.MIN_VALUE) return NONE;
+		Level level = level();
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos(x, y, z);
+		double surface = kind.surface(level, at, level.getBlockState(at));
+		int top = y + 2 + Mth.ceil(height());
+		for (int yy = y + 1; yy <= top; yy++) {
+			at.setY(yy);
+			if (!level.getBlockState(at).getCollisionShape(level, at).isEmpty()) return new Column(surface, yy - surface);
+		}
+		return new Column(surface, Double.POSITIVE_INFINITY);
+	}
+
 	/**
-	 * Сколько места над лавой у столбца (x, z): NaN, если это не озеро (сверху лавы блок или лавы нет), иначе высота до первого блока над ней, чтобы
-	 * волна не проходила сквозь выступы и площадки над озером.
+	 * Сколько места над материалом у столбца (x, z): NaN, если волне тут не идти, иначе высота до первого блока над ним, чтобы волна не проходила сквозь
+	 * выступы и площадки.
 	 */
 	public double columnRoom(int x, int z) {
-		int base = base();
-		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos(x, base, z);
-		Level level = level();
-		if (!level.getFluidState(at).is(FluidTags.LAVA)) return Double.NaN;
-		int top = base + 2 + Mth.ceil(height());
-		for (int y = base + 1; y <= top; y++) {
-			at.setY(y);
-			BlockState state = level.getBlockState(at);
-			boolean solid = !state.getCollisionShape(level, at).isEmpty();
-			if (y == base + 1 && (solid || state.getFluidState().is(FluidTags.LAVA))) return Double.NaN;
-			if (solid) return y - surfaceY();
-		}
-		return Double.POSITIVE_INFINITY;
+		Column c = column(x, z);
+		return c.exists() ? c.room() : Double.NaN;
 	}
 
 	/** Верх волны над точкой мира в момент t; NaN, где волны нет. */
@@ -286,15 +408,15 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		if (Math.abs(across(x, z)) > halfWidth()) return Double.NaN;
 		double h = heightAt(along(x, z) - crest(t), amplitude(t));
 		if (h <= 0) return Double.NaN;
-		double room = columnRoom(Mth.floor(x), Mth.floor(z));
-		if (Double.isNaN(room)) return Double.NaN;
-		return surfaceY() + Math.min(h, room);
+		Column c = column(Mth.floor(x), Mth.floor(z));
+		if (!c.exists()) return Double.NaN;
+		return c.surface() + Math.min(h, c.room());
 	}
 
-	/** Насколько волна поднимает лаву над уровнем в точке мира в момент t (0, где волны нет). */
+	/** Насколько волна поднимает материал над его поверхностью в точке мира в момент t (0, где волны нет). */
 	public double liftAt(double x, double z, double t) {
 		double top = topAt(x, z, t);
-		return Double.isNaN(top) ? 0 : top - surfaceY();
+		return Double.isNaN(top) ? 0 : top - column(Mth.floor(x), Mth.floor(z)).surface();
 	}
 
 	/** Поверхность всех волн мира в точке: подъём над уровнем лавы и куда склон увлекает плавающее, блоков за тик. */
@@ -308,7 +430,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		double lift = 0, vx = 0, vz = 0;
 		boolean crash = false;
 		for (LavaWaveEntity w : ALL) {
-			if (w.level() != level || w.isRemoved()) continue;
+			// по снегу плоты не плавают
+			if (w.level() != level || w.isRemoved() || w.kind() == WaveKind.SNOW) continue;
 			double t = w.waveTime(0);
 			if (!w.running(t)) continue;
 			double h = w.liftAt(x, z, t);
@@ -338,7 +461,14 @@ public class LavaWaveEntity extends FireMarkerEntity {
 			minZ = Math.min(minZ, z);
 			maxZ = Math.max(maxZ, z);
 		}
-		return new AABB(minX, surfaceY() - 1, minZ, maxX, surfaceY() + height() + 1, maxZ);
+		freshColumns();
+		int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+		for (int i = (int) Math.clamp((long) Math.floor(a0), 0, this.profile.length - 1); i <= (int) Math.clamp((long) Math.ceil(a1), 0, this.profile.length - 1); i++) {
+			lo = Math.min(lo, this.profile[i]);
+			hi = Math.max(hi, this.profile[i]);
+		}
+		double slack = w * SIDE_SLOPE;
+		return new AABB(minX, lo - DROP - slack - 1, minZ, maxX, hi + CLIMB + slack + height() + 2, maxZ);
 	}
 
 	// ---------------------------------------------------------------- ход
@@ -358,7 +488,12 @@ public class LavaWaveEntity extends FireMarkerEntity {
 			double u = (this.random.nextDouble() * 2 - 1) * halfWidth(), a = crest(t) + (this.random.nextDouble() - 0.5) * 2;
 			double x = getX() + c.x * a + s.x * u, z = getZ() + c.z * a + s.z * u;
 			double top = topAt(x, z, t);
-			if (!Double.isNaN(top)) level().addParticle(ParticleTypes.LAVA, x, top, z, 0, 0, 0);
+			if (Double.isNaN(top)) continue;
+			switch (kind()) {
+				case LAVA -> level().addParticle(ParticleTypes.LAVA, x, top, z, 0, 0, 0);
+				case WATER -> level().addParticle(ParticleTypes.SPLASH, x, top, z, c.x * 0.2, 0.1, c.z * 0.2);
+				case SNOW -> level().addParticle(ParticleTypes.SNOWFLAKE, x, top, z, c.x * speedPerTick() * 0.5, 0.05, c.z * speedPerTick() * 0.5);
+			}
 		}
 	}
 
@@ -370,15 +505,15 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		if (this.layer.busy()) this.layer.pour(level);
 		// обрушение поднимает несколько слоёв: следующий, когда залит предыдущий
 		if (!this.layer.busy() && this.riseLeft > 0) {
-			int y = findSurface(getBlockX(), getBlockY() + this.rise, getBlockZ());
-			if (y != Integer.MIN_VALUE && y < this.peakY && this.layer.plan(level, getBlockX(), y + 1, getBlockZ(), true, "Волна лавы у " + blockPosition())) this.riseLeft--;
+			int y = findSurface(kind(), getBlockX(), getBlockY() + this.rise, getBlockZ());
+			if (kind().fluid() && y != Integer.MIN_VALUE && y < this.peakY && this.layer.plan(level, getBlockX(), y + 1, getBlockZ(), true, kind(), "Волна у " + blockPosition())) this.riseLeft--;
 			else this.riseLeft = 0;
 		}
 		long now = level.getGameTime();
 		double t = waveTime(0);
 		if (running(t)) {
 			if (!this.crashed && t >= travelTicks()) crash(level, t);
-			burn(level, t);
+			affect(level, t);
 			return;
 		}
 		// слой обрушения ещё заливается: следующая волна пошла бы от старого уровня
@@ -400,19 +535,43 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	 * Верхняя клетка лавы в столбце маркера или MIN_VALUE, если лавы нет. Ищет и до {@code PeakY}: маркер поздней волны ждёт внизу, пока другие
 	 * волны поднимают лаву на десятки блоков (прежде окно в 8 блоков вверх не находило её, и цепочка волн вставала).
 	 */
-	private int findSurface(int x, int y, int z) {
+	private int findSurface(WaveKind kind, int x, int y, int z) {
 		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
 		int top = y + SEARCH_UP;
 		if (this.peakY != Integer.MIN_VALUE) top = Math.max(top, this.peakY + 1);
 		for (int yy = top; yy >= y - SEARCH_DOWN; yy--) {
-			if (level().getFluidState(at.set(x, yy, z)).is(FluidTags.LAVA) && !level().getFluidState(at.set(x, yy + 1, z)).is(FluidTags.LAVA)) return yy;
+			if (kind.matches(level().getBlockState(at.set(x, yy, z))) && !kind.matches(level().getBlockState(at.set(x, yy + 1, z)))) return yy;
 		}
 		return Integer.MIN_VALUE;
 	}
 
+	/**
+	 * Вид волны по блоку под маркером в столбце (x, y, z): сначала клетка прямо под {@code y}, потом сверху вниз первый верх любого материала. null — ни
+	 * одного материала.
+	 */
+	private WaveKind detect(int x, int y, int z) {
+		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
+		WaveKind under = WaveKind.of(level().getBlockState(at.set(x, y - 1, z)));
+		if (under != null) return under;
+		for (int yy = y + SEARCH_UP; yy >= y - SEARCH_DOWN; yy--) {
+			WaveKind k = WaveKind.of(level().getBlockState(at.set(x, yy, z)));
+			if (k != null && !k.matches(level().getBlockState(at.set(x, yy + 1, z)))) return k;
+		}
+		return null;
+	}
+
 	private void begin(ServerLevel level, long now) {
-		int surface = findSurface(getBlockX(), getBlockY(), getBlockZ());
-		if (surface == Integer.MIN_VALUE) return;
+		// вид волны — по блоку под маркером: его могли заменить с прошлой волны
+		WaveKind under = WaveKind.of(level.getBlockState(blockPosition().below()));
+		if (under != null && under != kind()) setKind(under);
+		int surface = findSurface(kind(), getBlockX(), getBlockY(), getBlockZ());
+		if (surface == Integer.MIN_VALUE) {
+			WaveKind found = detect(getBlockX(), getBlockY(), getBlockZ());
+			if (found == null) return;
+			setKind(found);
+			surface = findSurface(found, getBlockX(), getBlockY(), getBlockZ());
+			if (surface == Integer.MIN_VALUE) return;
+		}
 		// поставлен через /summon без PeakY
 		if (this.peakY == Integer.MIN_VALUE) setPeak(surface + 8);
 		this.entityData.set(BASE, surface);
@@ -421,37 +580,161 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		this.entityData.set(START, (int) now);
 		this.crashed = false;
 		this.finishPending = true;
-		level.playSound(null, getX(), surfaceY(), getZ(), SoundEvents.LAVA_POP, SoundSource.BLOCKS, 2f, 0.6f);
+		switch (kind()) {
+			case LAVA -> level.playSound(null, getX(), surfaceY(), getZ(), SoundEvents.LAVA_POP, SoundSource.BLOCKS, 2f, 0.6f);
+			case WATER -> level.playSound(null, getX(), surfaceY(), getZ(), SoundEvents.BUCKET_FILL, SoundSource.BLOCKS, 2f, 0.6f);
+			case SNOW -> level.playSound(null, getX(), surfaceY(), getZ(), SoundEvents.POWDER_SNOW_BREAK, SoundSource.BLOCKS, 2f, 0.5f);
+		}
 	}
 
-	/** Гребень дошёл до противоположного берега: брызги, звук и слой лавы. */
+	/** Гребень дошёл до конца пути: брызги, звук и слой (жидкость озера или снег там, где был гребень). */
 	private void crash(ServerLevel level, double t) {
 		this.crashed = true;
+		WaveKind kind = kind();
 		Vec3 c = course(), s = side();
 		double a = crest(t);
+		double midY = surfaceY();
 		for (double u = -halfWidth(); u <= halfWidth(); u += 1.5) {
 			double x = getX() + c.x * a + s.x * u, z = getZ() + c.z * a + s.z * u;
-			if (Double.isNaN(columnRoom(Mth.floor(x), Mth.floor(z)))) continue;
-			level.sendParticles(ParticleTypes.LAVA, x, surfaceY() + height() * 0.5, z, 6, 0.6, 0.4, 0.6, 0.1);
-			level.sendParticles(ParticleTypes.LARGE_SMOKE, x, surfaceY() + height(), z, 2, 0.4, 0.3, 0.4, 0.02);
+			Column col = column(Mth.floor(x), Mth.floor(z));
+			if (!col.exists()) continue;
+			double y = col.surface();
+			if (Math.abs(u) < 1.5) midY = y;
+			switch (kind) {
+				case LAVA -> {
+					level.sendParticles(ParticleTypes.LAVA, x, y + height() * 0.5, z, 6, 0.6, 0.4, 0.6, 0.1);
+					level.sendParticles(ParticleTypes.LARGE_SMOKE, x, y + height(), z, 2, 0.4, 0.3, 0.4, 0.02);
+				}
+				case WATER -> {
+					level.sendParticles(ParticleTypes.SPLASH, x, y + height() * 0.5, z, 12, 0.6, 0.4, 0.6, 0.2);
+					level.sendParticles(ParticleTypes.CLOUD, x, y + height() * 0.6, z, 1, 0.4, 0.3, 0.4, 0.02);
+				}
+				case SNOW -> {
+					level.sendParticles(ParticleTypes.SNOWFLAKE, x, y + height() * 0.5, z, 10, 0.7, 0.5, 0.7, 0.08);
+					level.sendParticles(ParticleTypes.POOF, x, y + height() * 0.5, z, 2, 0.5, 0.4, 0.5, 0.03);
+				}
+			}
 		}
-		Vec3 mid = new Vec3(getX() + c.x * a, surfaceY(), getZ() + c.z * a);
-		level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.BUCKET_EMPTY_LAVA, SoundSource.BLOCKS, 3f, 0.5f);
-		level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.LAVA_EXTINGUISH, SoundSource.BLOCKS, 2f, 0.6f);
-		if (this.rise > 0 && base() < this.peakY && !this.layer.busy() && this.layer.plan(level, getBlockX(), base() + 1, getBlockZ(), true, "Волна лавы у " + blockPosition()))
-			this.riseLeft = Math.min(this.rise, this.peakY - base()) - 1;
+		Vec3 mid = new Vec3(getX() + c.x * a, midY, getZ() + c.z * a);
+		switch (kind) {
+			case LAVA -> {
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.BUCKET_EMPTY_LAVA, SoundSource.BLOCKS, 3f, 0.5f);
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.LAVA_EXTINGUISH, SoundSource.BLOCKS, 2f, 0.6f);
+			}
+			case WATER -> {
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.GENERIC_SPLASH, SoundSource.BLOCKS, 3f, 0.6f);
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.BUCKET_EMPTY, SoundSource.BLOCKS, 2f, 0.5f);
+			}
+			case SNOW -> {
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.SNOW_BREAK, SoundSource.BLOCKS, 3f, 0.5f);
+				level.playSound(null, mid.x, mid.y, mid.z, SoundEvents.POWDER_SNOW_BREAK, SoundSource.BLOCKS, 3f, 0.6f);
+			}
+		}
+		if (this.rise <= 0 || this.layer.busy()) return;
+		if (kind.fluid()) {
+			if (base() < this.peakY && this.layer.plan(level, getBlockX(), base() + 1, getBlockZ(), true, kind, "Волна у " + blockPosition()))
+				this.riseLeft = Math.min(this.rise, this.peakY - base()) - 1;
+		} else depositSnow(level, a);
 	}
 
-	/** Внутри волны тело горит, как в лаве. Вселённого бьёт только его персонаж, игрока в выживании без персонажа (он в окне выбора) волна не трогает. */
-	private void burn(ServerLevel level, double t) {
+	/**
+	 * Лавина легла: {@code Rise} слоёв снега на каждый столбец, где гребень был выше четверти высоты (слои снега дополняются до полного, лишнее — слоями
+	 * выше). Ставит понемногу за тик, как слой озера. Предел {@code PeakY} у снега не действует.
+	 */
+	private void depositSnow(ServerLevel level, double crest) {
+		List<BlockPos> cells = new java.util.ArrayList<>();
+		List<BlockState> blocks = new java.util.ArrayList<>();
+		AABB box = band(travelTicks());
+		for (int x = Mth.floor(box.minX); x <= Mth.floor(box.maxX); x++) {
+			for (int z = Mth.floor(box.minZ); z <= Mth.floor(box.maxZ); z++) {
+				double cx = x + 0.5, cz = z + 0.5;
+				if (Math.abs(across(cx, cz)) > halfWidth() || heightAt(along(cx, cz) - crest, 1) < height() * 0.25) continue;
+				Column col = column(x, z);
+				if (!col.exists()) continue;
+				BlockPos top = new BlockPos(x, Mth.floor(col.surface() - 1.0e-6), z);
+				BlockState state = level.getBlockState(top);
+				int add = this.rise;
+				if (state.is(Blocks.SNOW)) {
+					int total = state.getValue(SnowLayerBlock.LAYERS) + add;
+					cells.add(top);
+					blocks.add(snow(Math.min(8, total)));
+					add = total - 8;
+				}
+				for (BlockPos up = top.above(); add > 0; up = up.above(), add -= 8) {
+					BlockState there = level.getBlockState(up);
+					if (!there.isAir() && !there.canBeReplaced()) break;
+					cells.add(up);
+					blocks.add(snow(Math.min(8, add)));
+				}
+			}
+		}
+		if (!cells.isEmpty()) this.layer.planCells(cells, blocks);
+	}
+
+	private static BlockState snow(int layers) {
+		return Blocks.SNOW.defaultBlockState().setValue(SnowLayerBlock.LAYERS, Math.clamp(layers, 1, 8));
+	}
+
+	/**
+	 * Что волна делает с телами внутри неё. Лава: горит, как в лаве. Вода и снег: несут по курсу к гребню и поднимают на верх волны (тело, которым
+	 * управляет клиент игрока, несёт его клиент — {@link #carryBody}), падение не копится; снег ещё ранит. Вселённого бьёт только его персонаж, игрока в
+	 * выживании без персонажа (он в окне выбора) волна не трогает.
+	 */
+	private void affect(ServerLevel level, double t) {
+		WaveKind kind = kind();
 		for (LivingEntity e : level.getEntitiesOfClass(LivingEntity.class, band(t))) {
 			if (e instanceof ServerPlayer player && (player.isPassenger() || player.gameMode() == GameType.SURVIVAL)) continue;
 			if (e.isSpectator() || e.isRemoved()) continue;
 			double top = topAt(e.getX(), e.getZ(), t);
-			if (Double.isNaN(top) || e.getBoundingBox().minY >= top - 0.05 || e.getY() < surfaceY() - 1.5) continue;
-			e.lavaIgnite();
-			e.lavaHurt();
+			if (Double.isNaN(top) || e.getBoundingBox().minY >= top - 0.05) continue;
+			if (e.getY() < column(Mth.floor(e.getX()), Mth.floor(e.getZ())).surface() - 1.5) continue;
+			if (kind == WaveKind.LAVA) {
+				e.lavaIgnite();
+				e.lavaHurt();
+				continue;
+			}
+			if (!(e instanceof Player) && !(e.getControllingPassenger() instanceof Player)) carry(e, t, top);
+			e.resetFallDistance();
+			if (kind == WaveKind.SNOW && (this.tickCount + e.getId()) % SNOW_HURT_EVERY == 0) e.hurtServer(level, level.damageSources().freeze(), SNOW_DAMAGE);
 		}
+	}
+
+	/** Несёт тело волной: вдоль курса к скорости гребня и тяге к нему (пока гребень идёт), вверх — к верху волны {@code top}. */
+	private void carry(Entity body, double t, double top) {
+		Vec3 c = course(), v = body.getDeltaMovement();
+		double dv = 0;
+		if (t < travelTicks()) {
+			double target = speedPerTick() + Math.clamp((crest(t) - along(body.getX(), body.getZ())) * PULL, -MAX_PULL, MAX_PULL);
+			dv = (target - (v.x * c.x + v.z * c.z)) * CARRY_GRIP;
+		}
+		double vy = v.y, up = top - body.getY();
+		if (up > 0) vy = Math.max(vy, Math.min(CARRY_LIFT_MAX, up * CARRY_LIFT));
+		body.setDeltaMovement(v.x + c.x * dv, vy, v.z + c.z * dv);
+	}
+
+	/**
+	 * Своё тело игрока (он сам или его персонаж) несут волны воды и снега его мира: его движение считает клиент, поэтому зовёт клиент каждый тик. Берётся
+	 * волна с самым высоким верхом над телом.
+	 */
+	public static void carryBody(Level level, Entity body) {
+		LavaWaveEntity best = null;
+		double bestTop = Double.NaN, bestT = 0;
+		for (LavaWaveEntity w : ALL) {
+			if (w.level() != level || w.isRemoved() || w.kind() == WaveKind.LAVA) continue;
+			double t = w.waveTime(0);
+			if (!w.running(t)) continue;
+			double top = w.topAt(body.getX(), body.getZ(), t);
+			if (Double.isNaN(top) || body.getBoundingBox().minY >= top - 0.05) continue;
+			if (body.getY() < w.column(Mth.floor(body.getX()), Mth.floor(body.getZ())).surface() - 1.5) continue;
+			if (best == null || top > bestTop) {
+				best = w;
+				bestTop = top;
+				bestT = t;
+			}
+		}
+		if (best == null) return;
+		best.carry(body, bestT, bestTop);
+		body.resetFallDistance();
 	}
 
 	// ---------------------------------------------------------------- маркер
@@ -476,7 +759,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 
 	@Override
 	protected Item item() {
-		return LavaWaves.ITEM;
+		return LavaWaves.item(kind());
 	}
 
 	@Override
@@ -516,11 +799,16 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	/** Над панелью коротко, иначе строка не влезает в экран: курс и путь (их меняют ПКМ и Ctrl), остальное — отдельными строками при своей правке. */
 	@Override
 	public void announce(Player player) {
-		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_set", Math.floorMod(Math.round(yaw()), 360), Math.round(length())));
+		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_set", Component.translatable("wave.gameplaymod.kind." + kind().id),
+				Math.floorMod(Math.round(yaw()), 360), Math.round(length())));
 	}
 
 	/** Подъём (Shift) или предел (Ctrl+Shift): и где встанет лава после обрушения. */
 	private void announceLevel(Player player, boolean peak) {
+		if (!kind().fluid()) {
+			player.sendOverlayMessage(Component.translatable("message.gameplaymod.snow_wave_rise", this.rise));
+			return;
+		}
 		player.sendOverlayMessage(peak ? Component.translatable("message.gameplaymod.lava_wave_peak", this.peakY, lavaAfterCrash())
 				: Component.translatable("message.gameplaymod.lava_wave_rise", this.rise, lavaAfterCrash(), this.peakY));
 	}
@@ -531,10 +819,15 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		player.sendOverlayMessage(Component.translatable("message.gameplaymod.lava_wave_width", half == Math.rint(half) ? Integer.toString(Math.round(half)) : String.format("%.1f", half)));
 	}
 
-	/** Маркер встаёт над поверхностью лавы в столбце под прицелом (клик по лаве проходит до дна); курс — взгляд. Предел лавы по умолчанию на 8 слоёв выше. */
+	/**
+	 * Маркер встаёт над поверхностью материала в столбце под прицелом (клик по жидкости проходит до дна); вид — по этому материалу (нет его — вид
+	 * предмета); курс — взгляд. Предел жидкости по умолчанию на 8 слоёв выше.
+	 */
 	@Override
 	public void placedBy(Player player, BlockPos pos) {
-		int surface = findSurface(pos.getX(), pos.getY(), pos.getZ());
+		WaveKind found = detect(pos.getX(), pos.getY() + 1, pos.getZ());
+		if (found != null) setKind(found);
+		int surface = findSurface(kind(), pos.getX(), pos.getY(), pos.getZ());
 		int y = surface == Integer.MIN_VALUE ? pos.getY() : surface + 1;
 		setPos(pos.getX() + 0.5, y, pos.getZ() + 0.5);
 		this.entityData.set(YAW, Math.round(player.getYRot() / TURN) * TURN);
@@ -557,6 +850,7 @@ public class LavaWaveEntity extends FireMarkerEntity {
 		out.putInt("PeakY", this.peakY == Integer.MIN_VALUE ? getBlockY() - 1 + 8 : this.peakY);
 		out.putInt("Rise", this.rise);
 		out.putInt("RiseLeft", this.riseLeft);
+		out.putString("Kind", kind().id);
 		// прерванная сохранением волна после загрузки пойдёт заново, иначе уровень не дождался бы её конца
 		out.putBoolean("Launch", this.launchRequested || this.finishPending);
 	}
@@ -564,6 +858,8 @@ public class LavaWaveEntity extends FireMarkerEntity {
 	@Override
 	protected void readAdditionalSaveData(ValueInput in) {
 		super.readAdditionalSaveData(in);
+		// маркеры, поставленные до волн воды и снега, — лава
+		setKind(WaveKind.byId(in.getStringOr("Kind", WaveKind.LAVA.id)));
 		this.entityData.set(YAW, in.getFloatOr("Yaw", yaw()));
 		this.entityData.set(LENGTH, Math.clamp(in.getFloatOr("Length", length()), MIN_LENGTH, MAX_LENGTH));
 		this.entityData.set(HEIGHT, Math.clamp(in.getFloatOr("Height", height()), 0.5f, 16f));

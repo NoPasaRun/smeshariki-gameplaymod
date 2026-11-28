@@ -48,6 +48,9 @@ public final class Ropes {
 	/** Верёвка ({@link PullRopeEntity}): короткая, для подтягивания. */
 	public static EntityType<PullRopeEntity> PULL_TYPE;
 	public static Item PULL_ITEM;
+	/** Аркан ({@link TowRopeEntity}): тянет сущность под креплением к держащему. */
+	public static EntityType<TowRopeEntity> TOW_TYPE;
+	public static Item TOW_ITEM;
 
 	private Ropes() {
 	}
@@ -69,11 +72,17 @@ public final class Ropes {
 				.sized(0.4f, 0.4f).clientTrackingRange(10).updateInterval(1).fireImmune().noSummon().build(pullKey));
 		ResourceKey<Item> pullItemKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "pull_rope"));
 		PULL_ITEM = Registry.register(BuiltInRegistries.ITEM, pullItemKey, new RopeItem(new Item.Properties().setId(pullItemKey).stacksTo(16), l -> new PullRopeEntity(PULL_TYPE, l)));
+		ResourceKey<EntityType<?>> towKey = ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "tow_rope"));
+		TOW_TYPE = Registry.register(BuiltInRegistries.ENTITY_TYPE, towKey, EntityType.Builder.<TowRopeEntity>of(TowRopeEntity::new, MobCategory.MISC)
+				.sized(0.4f, 0.4f).clientTrackingRange(10).updateInterval(1).fireImmune().noSummon().build(towKey));
+		ResourceKey<Item> towItemKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, "tow_rope"));
+		TOW_ITEM = Registry.register(BuiltInRegistries.ITEM, towItemKey, new RopeItem(new Item.Properties().setId(towItemKey).stacksTo(16), l -> new TowRopeEntity(TOW_TYPE, l)));
 		ResourceKey<CreativeModeTab> tab = ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("tools_and_utilities"));
 		CreativeModeTabEvents.modifyOutputEvent(tab).register(output -> {
 			output.accept(ITEM);
 			output.accept(CALM_ITEM);
 			output.accept(PULL_ITEM);
+			output.accept(TOW_ITEM);
 		});
 
 		ServerTickEvents.END_SERVER_TICK.register(Ropes::autoGrab);
@@ -163,6 +172,12 @@ public final class Ropes {
 			if (entity == player || entity == com.smeshariki.gameplay.character.CharacterEntity.body(player) || entity instanceof RopeEntity || entity instanceof RaftEntity) return InteractionResult.PASS;
 			if (!level.isClientSide() && Rafts.freshClick(player)) {
 				Vec3 point = hit != null ? hit.getLocation() : entity.position().add(0, entity.getBbHeight(), 0);
+				if (entity instanceof RopeHost host) {
+					// точка — узел ткани под прицелом; прицел попал только в её общую коробку, мимо самой ткани — не крепим куда попало
+					Vec3 picked = host.ropePick(player.getEyePosition(), player.getViewVector(1f), player.entityInteractionRange() + 1);
+					if (picked == null) return InteractionResult.PASS;
+					point = picked;
+				}
 				RopeEntity rope = item.create(level);
 				rope.setupAnchor(entity, point, player);
 				level.addFreshEntity(rope);
@@ -173,7 +188,8 @@ public final class Ropes {
 		// тарзанка в руке, за плотом нет блока: пакет использования всё равно уходит на сервер
 		UseItemCallback.EVENT.register((player, level, hand) -> {
 			if (level.isClientSide() || hand != InteractionHand.MAIN_HAND || player.isSpectator() || RopeEntity.heldBy(player) != null || !(player.getItemInHand(hand).getItem() instanceof RopeItem) || !Rafts.freshClick(player)) return InteractionResult.PASS;
-			return anchorOnRaft(player, level, hand, Double.POSITIVE_INFINITY) ? InteractionResult.SUCCESS : InteractionResult.PASS;
+			if (anchorOnRaft(player, level, hand, Double.POSITIVE_INFINITY)) return InteractionResult.SUCCESS;
+			return lasso(player, level, hand, Double.POSITIVE_INFINITY) ? InteractionResult.SUCCESS : InteractionResult.PASS;
 		});
 	}
 
@@ -182,7 +198,7 @@ public final class Ropes {
 	 * у них своё правило (с креплением на блоке не удлинить). В творческом режиме длина меняется у всех.
 	 */
 	public static boolean lengthFixed(RopeEntity rope) {
-		return !(rope instanceof PullRopeEntity) && !(rope instanceof com.smeshariki.gameplay.raft.BalloonRopeEntity);
+		return !(rope instanceof PullRopeEntity) && !(rope instanceof TowRopeEntity) && !(rope instanceof com.smeshariki.gameplay.raft.BalloonRopeEntity);
 	}
 
 	/** Ctrl у игрока (сервер читает его из пакета ввода, как у маркеров). */
@@ -226,6 +242,50 @@ public final class Ropes {
 	}
 
 	/** Сервер: ПКМ тарзанкой по плоту или шару ближе maxDistance — крепление на нём, второй конец в руке. */
+	/**
+	 * Аркан цепляется за любую сущность под прицелом, в том числе за ту, которую обычный прицел не берёт (предмет на земле, стрела, шар опыта):
+	 * луч взгляда против коробок сущностей на дальности работы с сущностями и не дальше {@code maxDistance} (до блока под прицелом). Обычный
+	 * путь (ПКМ по сущности, которую прицел берёт) — в обработчике выше, он для всех верёвок. Не берёт: себя и своё тело, верёвки, плоты и шары
+	 * (у них своё крепление), сиденья и маркеры мода (они инструменты и видны только со своим предметом в руке).
+	 */
+	static boolean lasso(Player player, Level level, InteractionHand hand, double maxDistance) {
+		ItemStack stack = player.getItemInHand(hand);
+		if (stack.getItem() != TOW_ITEM || RopeEntity.heldBy(player) != null) return false;
+		Vec3 from = player.getEyePosition(), view = player.getViewVector(1f);
+		double reach = Math.min(player.entityInteractionRange(), maxDistance);
+		Vec3 to = from.add(view.scale(reach));
+		Entity body = com.smeshariki.gameplay.character.CharacterEntity.body(player);
+		Entity best = null;
+		Vec3 bestPoint = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (Entity e : level.getEntities(player, new AABB(from, to).inflate(1.0), e -> e != body && !e.isSpectator() && !(e instanceof RopeEntity) && !(e instanceof RaftEntity)
+				&& !(e instanceof com.smeshariki.gameplay.raft.SeatEntity) && !(e instanceof com.smeshariki.gameplay.barrage.FireMarkerEntity)
+				&& !(e instanceof com.smeshariki.gameplay.current.CurrentMarkerEntity) && !(e instanceof com.smeshariki.gameplay.wind.WindMarkerEntity)
+				&& !(e instanceof com.smeshariki.gameplay.lava.LavaTideEntity))) {
+			// мелкое (предмет, стрела) ловится с запасом
+			java.util.Optional<Vec3> hit = e.getBoundingBox().inflate(0.2).clip(from, to);
+			if (hit.isEmpty()) continue;
+			double d = hit.get().distanceToSqr(from);
+			if (d < bestDistance) {
+				bestDistance = d;
+				best = e;
+				bestPoint = hit.get();
+			}
+		}
+		if (best == null) return false;
+		Vec3 point = best.getBoundingBox().getCenter().add(bestPoint.subtract(best.getBoundingBox().getCenter()).scale(0.5));
+		if (best instanceof RopeHost host) {
+			// у ткани крепление — узел под прицелом, а не точка её общей коробки
+			point = host.ropePick(from, view, reach + 1);
+			if (point == null) return false;
+		}
+		RopeEntity rope = ((RopeItem) stack.getItem()).create(level);
+		rope.setupAnchor(best, point, player);
+		level.addFreshEntity(rope);
+		if (!player.hasInfiniteMaterials()) stack.shrink(1);
+		return true;
+	}
+
 	private static boolean anchorOnRaft(Player player, Level level, InteractionHand hand, double maxDistance) {
 		ItemStack stack = player.getItemInHand(hand);
 		if (!(stack.getItem() instanceof RopeItem item)) return false;

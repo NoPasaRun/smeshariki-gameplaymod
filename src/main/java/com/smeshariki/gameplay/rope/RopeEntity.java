@@ -162,6 +162,7 @@ public class RopeEntity extends Entity {
 		Vec3 stored = new Vec3(a.x(), a.y(), a.z());
 		if (anchorOnEntity()) {
 			Entity e = level().getEntity(this.entityData.get(ANCHOR_ENTITY));
+			if (e instanceof RopeHost host) return lastAnchor = host.ropePoint(a, partialTick);
 			if (e != null && !(e instanceof RopeEntity)) return lastAnchor = e.getPosition(partialTick).add(stored);
 			return lastAnchor != null ? lastAnchor : position();
 		}
@@ -181,6 +182,21 @@ public class RopeEntity extends Entity {
 	/** Сущность, на которой закреплён верёвочный якорь; {@code null} — крепление на блоке или плоту. */
 	public java.util.UUID anchorEntityId() {
 		return anchorEntityId;
+	}
+
+	/** Номер сущности, на которой крепление (на обеих сторонах); отрицательный — крепление не на сущности. */
+	public int anchorEntityNetId() {
+		return this.entityData.get(ANCHOR_ENTITY);
+	}
+
+	/** Сохранённое крепление: точка на блоке, в системе плота или то, что вернул {@link RopeHost#ropeLocal}. */
+	public Vector3fc anchorLocal() {
+		return this.entityData.get(ANCHOR);
+	}
+
+	/** Конец зацеплен за блок мира (не за плот или шар); видно на обеих сторонах. */
+	public boolean endOnBlock() {
+		return mode() == ATTACHED && this.entityData.get(END_RAFT) == NO_RAFT;
 	}
 
 	public java.util.UUID anchorRaftId() {
@@ -249,7 +265,7 @@ public class RopeEntity extends Entity {
 		this.anchorEntityId = target.getUUID();
 		this.anchorEntityRef = target;
 		this.lastAnchor = world;
-		Vec3 local = world.subtract(target.position());
+		Vec3 local = target instanceof RopeHost host ? host.ropeLocal(world) : world.subtract(target.position());
 		this.entityData.set(ANCHOR_ENTITY, target.getId());
 		this.entityData.set(ANCHOR, new Vector3f((float) local.x, (float) local.y, (float) local.z));
 		take(holder, length());
@@ -287,11 +303,18 @@ public class RopeEntity extends Entity {
 	public record Link(Vec3 offset, Vec3 point, double length, boolean fixed) {
 	}
 
-	/** Верёвки, которыми плот или шар привязан к шару или к блоку мира. Обе стороны считают по своим данным. */
+	/** Верёвки, которыми плот или шар привязан к шару, к блоку мира или (аркан) к руке держащего. Обе стороны считают по своим данным. */
 	public static List<Link> linksOf(RaftEntity raft) {
 		var area = raft.getBoundingBox().inflate(LONGEST + raft.sx() + raft.sy() + raft.sz());
 		List<Link> links = new java.util.ArrayList<>();
-		for (RopeEntity rope : raft.level().getEntitiesOfClass(RopeEntity.class, area, r -> r.mode() == ATTACHED)) {
+		for (RopeEntity rope : raft.level().getEntitiesOfClass(RopeEntity.class, area, r -> r.mode() == ATTACHED || (r.mode() == HELD && r.pullsAnchor()))) {
+			if (rope.mode() == HELD) {
+				// аркан в руке, крепление на этом плоту: привязь к руке держащего (держит и шар)
+				Entity holder = raft.level().getEntity(rope.holderId());
+				if (holder != null && rope.towsRaft(holder) == raft) links.add(new Link(offset(raft, vec(rope.entityData.get(ANCHOR))), holdPoint(holder, 1f),
+						rope.tetherLength(rope.armLength(), raft.position().add(offset(raft, vec(rope.entityData.get(ANCHOR)))).distanceTo(holdPoint(holder, 1f))), true));
+				continue;
+			}
 			RaftEntity start = rope.raftById(rope.entityData.get(ANCHOR_RAFT)), end = rope.raftById(rope.entityData.get(END_RAFT));
 			Vec3 anchorLocal = vec(rope.entityData.get(ANCHOR)), endLocal = vec(rope.entityData.get(END_LOCAL));
 			if (start == raft && end instanceof BalloonEntity b && b != raft) links.add(new Link(offset(raft, anchorLocal), b.fromLocal(endLocal, 1f), rope.length(), false));
@@ -299,7 +322,8 @@ public class RopeEntity extends Entity {
 			// крепление на блоке мира (ANCHOR — точка в мире), конец на плоту
 			else if (end == raft && !rope.anchorOnRaft() && !rope.anchorOnEntity()) links.add(new Link(offset(raft, endLocal), anchorLocal, rope.length(), true));
 			// крепление на плоту, конец зацеплен за блок мира (позиция верёвки — конец)
-			else if (start == raft && rope.entityData.get(END_RAFT) == NO_RAFT) links.add(new Link(offset(raft, anchorLocal), rope.position(), rope.length(), true));
+			else if (start == raft && rope.entityData.get(END_RAFT) == NO_RAFT) links.add(new Link(offset(raft, anchorLocal), rope.position(),
+					rope.tetherLength(rope.length(), raft.position().add(offset(raft, anchorLocal)).distanceTo(rope.position())), true));
 		}
 		return links;
 	}
@@ -320,6 +344,38 @@ public class RopeEntity extends Entity {
 			if (rope.anchoredToBlock() && blocks.contains(rope.anchorBlock)) rope.anchorOnto(raft, rope.anchor());
 			if (rope.attachBlock != null && blocks.contains(rope.attachBlock)) rope.endOnto(raft, rope.position());
 		}
+	}
+
+	/**
+	 * Блоки собрали в сущность, к точкам которой крепятся верёвки ({@link RopeHost}: ширмы — в ткань): верёвки с этих блоков переходят на неё,
+	 * иначе они ломались бы и отцеплялись, когда блоки пропадут. Крепление на таком блоке становится креплением на сущности в той же точке.
+	 * Конец, зацепленный за такой блок, у верёвки с креплением на блоке мира меняется с креплением местами (крепление — на сущности, конец —
+	 * за прежний блок крепления): зацепить конец за сущность нельзя, а верёвка та же. В остальных случаях конец отпускается, как раньше.
+	 */
+	public static void adopt(Entity host, java.util.Set<BlockPos> blocks) {
+		for (RopeEntity rope : host.level().getEntitiesOfClass(RopeEntity.class, host.getBoundingBox().inflate(LONGEST + 2))) {
+			boolean anchorHere = rope.anchoredToBlock() && blocks.contains(rope.anchorBlock);
+			boolean endHere = rope.mode() == ATTACHED && rope.attachBlock != null && blocks.contains(rope.attachBlock);
+			if (anchorHere) {
+				rope.anchorOnto(host, rope.anchor());
+				if (endHere) rope.release();
+			} else if (endHere && rope.anchoredToBlock()) {
+				Vec3 oldAnchor = rope.anchor(), end = rope.position();
+				BlockPos oldBlock = rope.anchorBlock;
+				rope.anchorOnto(host, end);
+				rope.attachBlock = oldBlock;
+				rope.setPos(oldAnchor);
+			} else if (endHere) rope.release();
+		}
+	}
+
+	private void anchorOnto(Entity target, Vec3 world) {
+		this.anchorEntityId = target.getUUID();
+		this.anchorEntityRef = target;
+		this.lastAnchor = world;
+		Vec3 local = target instanceof RopeHost host ? host.ropeLocal(world) : world.subtract(target.position());
+		this.entityData.set(ANCHOR_ENTITY, target.getId());
+		this.entityData.set(ANCHOR, new Vector3f((float) local.x, (float) local.y, (float) local.z));
 	}
 
 	/** Игрок или персонаж без игрока схватил верёвку там, где его рука: рычаг — расстояние от крепления до руки. */
@@ -349,7 +405,12 @@ public class RopeEntity extends Entity {
 
 	/** Зацепляет конец за блок; false, если точка дальше длины верёвки. */
 	public boolean attachTo(BlockPos block, Vec3 point) {
-		if (point.distanceTo(anchor()) > length()) return false;
+		double distance = point.distanceTo(anchor());
+		if (distance > length()) {
+			// аркан на сущности, ткани или плоту цепляется и не дотянувшись: он подтянет их к блоку, пока длины не хватит
+			if (!pullsAnchor() || !(anchorOnEntity() || anchorOnRaft()) || distance > length() + REEL_REACH) return false;
+			this.reelTicks = REEL_TICKS;
+		}
 		markHolderReleased();
 		this.entityData.set(MODE, ATTACHED);
 		this.entityData.set(HOLDER, -1);
@@ -481,6 +542,11 @@ public class RopeEntity extends Entity {
 					Vector3fc l = this.entityData.get(END_LOCAL);
 					setPos(raft.fromLocal(new Vec3(l.x(), l.y(), l.z()), 1f));
 				}
+				if (this.reelTicks > 0) this.reelTicks--;
+				// аркан, зацепленный концом: сущность под креплением держится не дальше длины от конца (привязана), а не дотянувшийся — подтягивает её.
+				// Ткань и плот тянут себя сами как привязь (ClothEntity.tethers, linksOf)
+				Entity towed = pullsAnchor() && anchorOnEntity() ? level().getEntity(this.entityData.get(ANCHOR_ENTITY)) : null;
+				if (towed != null && !(towed instanceof RopeHost) && !(towed instanceof RopeEntity)) tow(towed.getRootVehicle(), anchor(), position());
 			}
 		}
 		if (level() instanceof ServerLevel server) {
@@ -523,6 +589,15 @@ public class RopeEntity extends Entity {
 			if (level() instanceof ServerLevel server) breakRope(server, !(holder instanceof Player p && p.hasInfiniteMaterials()));
 			return;
 		}
+		Entity towed = pullsAnchor() && anchorOnEntity() ? level().getEntity(this.entityData.get(ANCHOR_ENTITY)) : null;
+		// ткань тянет свой узел к руке сама, как привязь ({@link RopeHost}, см. ClothEntity.tethers): держащего аркан не держит
+		if (towed instanceof RopeHost) return;
+		if (towed != null && !(towed instanceof RopeEntity) && towed.getRootVehicle() != holder.getRootVehicle()) {
+			tow(towed.getRootVehicle(), a, point);
+			return;
+		}
+		// аркан на плоту или шаре: тянет его к руке как привязь ({@link #linksOf}), держащего не держит
+		if (towsRaft(holder) != null) return;
 		Vec3 fix = correction(a, point, armLength());
 		boolean taut = point.distanceTo(a) >= armLength() - TAUT;
 		if (taut) holder.resetFallDistance();
@@ -551,6 +626,67 @@ public class RopeEntity extends Entity {
 			if (fix.lengthSqr() > 1e-8) RaftEntity.withoutPush(() -> holder.move(MoverType.SELF, holderFix));
 			holder.setDeltaMovement(clipVelocity(a, point.add(fix), holder.getDeltaMovement(), armLength()));
 		}
+	}
+
+	/** Верёвка тянет сущность под креплением к держащему, а не держащего к креплению ({@link TowRopeEntity}). */
+	protected boolean pullsAnchor() {
+		return false;
+	}
+
+	/** Плот или шар под креплением, который эта верёвка сейчас тянет к держащему; {@code null} — не тянет (не аркан, не на плоту, держащий стоит на нём). */
+	private RaftEntity towsRaft(Entity holder) {
+		if (!pullsAnchor() || !anchorOnRaft()) return null;
+		RaftEntity raft = raftById(this.entityData.get(ANCHOR_RAFT));
+		return raft == null || RaftEntity.under(holder.getRootVehicle()) == raft ? null : raft;
+	}
+
+	/** Верёвка этого вида тянет то, на чём закреплена (аркан). */
+	public boolean pulls() {
+		return pullsAnchor();
+	}
+
+	/**
+	 * Длина привязи к точке на расстоянии {@code distance} от крепления: обычно длина верёвки, а у аркана, который до точки не дотягивается, —
+	 * чуть меньше нынешнего расстояния, чтобы плот или ткань подтягивались к ней по {@link #TOW_STEP} за тик, а не прыжком.
+	 */
+	public double tetherLength(double length, double distance) {
+		return pullsAnchor() ? Math.max(length, distance - TOW_STEP) : length;
+	}
+
+	/** Аркан сейчас в руке и тянет то, на чём закреплён (на обеих сторонах). */
+	public boolean towing() {
+		return pullsAnchor() && mode() == HELD;
+	}
+
+	/**
+	 * Аркан цепляется концом за блок и не дотянувшись — не дальше чем на столько блоков сверх длины; столько тиков (15 секунд) он подтягивает
+	 * своё к блоку, и если длины так и не хватило (застряло), конец срывается, как у любой верёвки.
+	 */
+	private static final double REEL_REACH = 24;
+	private static final int REEL_TICKS = 300;
+	private int reelTicks;
+
+	/** За тик сущность подтягивается к руке не больше чем на столько блоков. */
+	private static final double TOW_STEP = 0.5;
+
+	/**
+	 * Подтягивает тело {@code body} (сущность под креплением или то, на чём она едет) к руке держащего: та же жёсткая верёвка, только
+	 * неподвижный конец — рука, а подвижный — крепление. Двигает тело тот, кто им управляет: игрока и персонажа с игроком — клиент этого
+	 * игрока, остальных — сервер.
+	 */
+	private void tow(Entity body, Vec3 anchor, Vec3 hand) {
+		Player driver = body instanceof Player p ? p : body.getControllingPassenger() instanceof Player p ? p : null;
+		boolean mine = driver != null ? level().isClientSide() && driver.isLocalPlayer() : !level().isClientSide();
+		if (!mine) return;
+		Vec3 fix = correction(hand, anchor, armLength());
+		double shift = fix.length();
+		if (shift > TOW_STEP) fix = fix.scale(TOW_STEP / shift);
+		if (shift > 1e-4) {
+			Vec3 step = fix;
+			RaftEntity.withoutPush(() -> body.move(MoverType.SELF, step));
+			body.resetFallDistance();
+		}
+		body.setDeltaMovement(clipVelocity(hand, anchor.add(fix), body.getDeltaMovement(), armLength()));
 	}
 
 	/** Маятник: точечная масса на жёсткой нити вокруг крепления. */
@@ -649,7 +785,8 @@ public class RopeEntity extends Entity {
 			return;
 		}
 		// одно из креплений уехало: натянутая верёвка срывает конец
-		if (position().distanceTo(anchor()) > length() + SNAP_SLACK) release();
+		// аркан, зацепленный не дотянувшись, ещё подтягивает своё: срыв откладывается на время подтягивания
+		if (this.reelTicks <= 0 && position().distanceTo(anchor()) > length() + SNAP_SLACK) release();
 	}
 
 	private static RaftEntity findRaft(ServerLevel server, java.util.UUID id) {

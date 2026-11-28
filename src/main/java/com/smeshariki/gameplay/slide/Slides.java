@@ -98,8 +98,10 @@ public final class Slides {
 
 	private static Block register(String name, java.util.function.Function<BlockBehaviour.Properties, Block> factory, SoundType sound, float strength) {
 		ResourceKey<Block> blockKey = ResourceKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, name));
-		Block block = Registry.register(BuiltInRegistries.BLOCK, blockKey, factory.apply(BlockBehaviour.Properties.of().setId(blockKey)
-				.strength(strength).friction(0.98f).sound(sound).noOcclusion()));
+		BlockBehaviour.Properties props = BlockBehaviour.Properties.of().setId(blockKey).strength(strength).friction(0.98f).sound(sound).noOcclusion();
+		// у скатов-полей ~10 тыс. состояний на блок: без этого игра строит их формы при запуске (~20 с), см. FieldSlideBlock.getShape
+		if (name.startsWith("slide_field")) props = props.dynamicShape();
+		Block block = Registry.register(BuiltInRegistries.BLOCK, blockKey, factory.apply(props));
 		ResourceKey<Item> itemKey = ResourceKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath(GameplayMod.NAMESPACE, name));
 		Item item = Registry.register(BuiltInRegistries.ITEM, itemKey, new BlockItem(block, new Item.Properties().setId(itemKey).useBlockDescriptionPrefix()));
 		ResourceKey<CreativeModeTab> tab = ResourceKey.create(Registries.CREATIVE_MODE_TAB, Identifier.withDefaultNamespace("building_blocks"));

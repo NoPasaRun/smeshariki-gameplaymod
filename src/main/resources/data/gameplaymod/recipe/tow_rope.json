@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:lead",
+		"minecraft:string",
+		"gameplaymod:scheme_tow_rope"
+	],
+	"result": {
+		"id": "gameplaymod:tow_rope",
+		"count": 1
+	}
+}

@@ -22,7 +22,7 @@ import net.minecraft.world.entity.player.Player;
 public abstract class ServerGamePacketListenerImplMixin {
 	@Inject(method = "noBlocksAround", at = @At("HEAD"), cancellable = true)
 	private void gameplaymod$raft(Entity entity, CallbackInfoReturnable<Boolean> cir) {
-		if (RaftEntity.standsOnRaft(entity)) cir.setReturnValue(false);
+		if (RaftEntity.standsOnRaft(entity) || com.smeshariki.gameplay.cloth.ClothEntity.standsOnCloth(entity)) cir.setReturnValue(false);
 		// висящий на тарзанке тоже не летит; вселённый приходит сюда своим персонажем
 		for (Entity e : entity.getIndirectPassengers()) if (e instanceof Player p && RopeEntity.heldBy(p) != null) cir.setReturnValue(false);
 		if (entity instanceof Player p && RopeEntity.heldBy(p) != null) cir.setReturnValue(false);

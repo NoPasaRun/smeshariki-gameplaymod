@@ -12,6 +12,7 @@
 		"EntityGetterMixin",
 		"EntityRaftPushMixin",
 		"EntitySlopeMixin",
+		"LivingEntitySandwichMixin",
 		"LivingEntitySlopeMixin",
 		"LivingEntityVineMixin",
 		"PlayerMixin",

@@ -28,7 +28,7 @@ import net.minecraft.world.item.Items;
  */
 public final class Schemes {
 	/** Что можно нарисовать: по имени предмета-результата в {@code gameplaymod}. */
-	public static final List<String> NAMES = List.of("tarzan_rope", "calm_rope", "pull_rope", "raft_binder", "balloon_burner", "balloon_lift_rope", "balloon_helm_rope",
+	public static final List<String> NAMES = List.of("tarzan_rope", "calm_rope", "pull_rope", "tow_rope", "raft_binder", "balloon_burner", "balloon_lift_rope", "balloon_helm_rope",
 			"current_marker", "wind_marker", "smoke_marker", "launcher_marker");
 
 	private static final Map<String, Item> ITEMS = new LinkedHashMap<>();

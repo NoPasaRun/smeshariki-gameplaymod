@@ -9,7 +9,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.FluidTags;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityProcessor;
@@ -98,7 +97,9 @@ public final class LavaSnapshots {
 			if (pos == null) continue;
 			int x = (int) Math.floor(pos.x), z = (int) Math.floor(pos.z), base = tag.getIntOr("SnapshotBase", (int) Math.floor(pos.y) - 1);
 			level.getChunk(x >> 4, z >> 4);
-			drainAbove(level, x, base, z);
+			WaveKind kind = WaveKind.byId(tag.getStringOr("Kind", WaveKind.LAVA.id));
+			// снег лавины снимок не возвращает (его откатывает возврат блоков уровня), жидкость — слоями
+			if (kind.fluid()) drainAbove(level, x, base, z, kind);
 			CompoundTag copy = tag.copy();
 			copy.remove("SnapshotBase");
 			// ход волны возвращается из снимка (ResumeElapsed и др.); заказ, ждущий маркера (LavaWaves.PENDING), отменяется: он пустил бы волну сразу, как только маркер появится
@@ -112,12 +113,12 @@ public final class LavaSnapshots {
 	}
 
 	/** Снять слои лавы озера над {@code base} у столбца (x, z): от верхнего вниз, каждый слой — все соединённые с ним клетки этого уровня. */
-	private static void drainAbove(ServerLevel level, int x, int base, int z) {
+	private static void drainAbove(ServerLevel level, int x, int base, int z, WaveKind kind) {
 		int top = base;
-		while (top - base < MAX_LAYERS && level.getFluidState(new BlockPos(x, top + 1, z)).is(FluidTags.LAVA)) top++;
+		while (top - base < MAX_LAYERS && kind.matches(level.getBlockState(new BlockPos(x, top + 1, z)))) top++;
 		for (int y = top; y > base; y--) {
 			LavaLayer layer = new LavaLayer();
-			if (!layer.plan(level, x, y, z, false, "Возврат озера у " + x + " " + z)) break;
+			if (!layer.plan(level, x, y, z, false, kind, "Возврат озера у " + x + " " + z)) break;
 			while (!layer.pour(level)) {
 			}
 		}
